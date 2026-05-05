@@ -1,4 +1,4 @@
-// app/(portal)/portal/layout.jsx
+// app/layout.jsx
 import "../globals.css";
 import { AuthProvider } from "../context/AuthContext";
 

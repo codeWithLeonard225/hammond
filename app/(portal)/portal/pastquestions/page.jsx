@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
 import { useRouter } from "next/navigation";
 import { db } from "@/app/lib/firebase"; 
-import { othersdb } from "@/app/lilothers/othersdb.jsx";
+import { schoollpq } from "@/app/lilschoollpq/schoollpq";
 
 import {
     collection,
@@ -178,7 +178,7 @@ export default function PupilPastQuestionViewer() {
         if (!schoolId || !latestInfo.class) return;
 
         const q = query(
-            collection(othersdb, "SchoolPastQuestions"),
+            collection(schoollpq, "SchoolPastQuestions"),
             where("schoolId", "==", schoolId),
             where("className", "==", latestInfo.class)
         );

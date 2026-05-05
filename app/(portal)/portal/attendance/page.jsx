@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { othersdb } from "@/app/lilothers/othersdb.jsx";
+import { schoollpq } from "@/app/lilschoollpq/schoollpq";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/app/context/AuthContext"; // adjust path
 import localforage from "localforage";
@@ -51,7 +51,7 @@ export default function PupilAttendance() {
 
       // Listen to Firestore updates
       const q = query(
-        collection(othersdb, "PupilAttendance"),
+        collection(schoollpq, "PupilAttendance"),
         where("studentID", "==", selectedPupil),
         where("schoolId", "==", schoolId)
       );
