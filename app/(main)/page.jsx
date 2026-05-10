@@ -46,7 +46,7 @@ export default function HomePage() {
         
         <div className="w-full lg:w-1/2 relative h-[400px] lg:h-auto">
           <Image
-            src="/images/schoolbg1.jpg"
+            src="/images/hipsaBackground.jpeg"
             alt="HIPA Students in Modern Learning Environment"
             fill
             priority
@@ -121,7 +121,7 @@ export default function HomePage() {
               
               <div className="space-y-6 text-slate-600 text-lg leading-relaxed">
                 <p>
-                  Welcome to <strong>Hammond International Preparatory & Academy (HIPA)</strong>. 
+                  Welcome to <strong>Hammond International Preparatory School & Academy (HIPSA)</strong>. 
                   Our institution stands as a testament to the belief that every child possesses 
                   the capacity for greatness when provided with the right environment.
                 </p>
@@ -145,7 +145,7 @@ export default function HomePage() {
                 <div className="absolute inset-0 bg-amber-500 rounded-lg rotate-3 group-hover:rotate-0 transition-transform duration-500"></div>
                 <div className="relative w-[320px] h-[400px] md:w-[400px] md:h-[500px] rounded-lg overflow-hidden shadow-2xl">
                   <Image
-                    src="/images/proprietor.png" 
+                    src="/images/pro.jpeg" 
                     alt="Director of HIPA"
                     fill
                     className="object-cover"
@@ -162,7 +162,7 @@ export default function HomePage() {
         <div className="max-w-5xl mx-auto rounded-3xl bg-gradient-to-br from-amber-500 to-amber-600 p-8 md:p-16 flex flex-col md:flex-row items-center justify-between shadow-2xl">
           <div className="mb-8 md:mb-0 text-center md:text-left">
             <h2 className="text-3xl md:text-4xl font-bold text-[#0a192f] mb-4">
-              Access the HIPA Portal
+              Access the HIPSA Portal
             </h2>
             <p className="text-[#0a192f]/80 text-lg font-medium">
               Monitor academic progress and stay connected in real-time.

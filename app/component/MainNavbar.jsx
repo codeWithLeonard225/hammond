@@ -47,7 +47,7 @@ export default function MainNavbar() {
           <Link href="/service" className="hover:text-blue-600">Services</Link>
           <Link href="/gallery" className="hover:text-blue-600">Gallery</Link>
           <Link href="/contact" className="hover:text-blue-600">Contact</Link>
-          <Link href="/test" className="hover:text-blue-600">test</Link>
+      
 
           {/* LOGIN BUTTON (Desktop) */}
           <Link 

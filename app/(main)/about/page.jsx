@@ -56,7 +56,7 @@ export default function AboutPage() {
             </h2>
             <div className="space-y-6 text-slate-600 text-lg leading-relaxed">
               <p>
-                <strong>Hammond International Preparatory & Academy (HIPA)</strong> is more than an 
+                <strong>Hammond International Preparatory School & Academy (HIPSA)</strong> is more than an 
                 educational center; it is a catalyst for transformation in Sierra Leone. 
                 We operate on the principle that academic mastery must be coupled with 
                 unwavering integrity.
@@ -99,7 +99,7 @@ export default function AboutPage() {
       <section className="py-24 px-6 bg-white">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-2xl mx-auto mb-20">
-            <h2 className="text-4xl font-serif font-bold text-[#0a192f] mb-4">The HIPA Triad</h2>
+            <h2 className="text-4xl font-serif font-bold text-[#0a192f] mb-4">The HIPSA Triad</h2>
             <p className="text-slate-500">The three foundational values that govern every interaction within our halls.</p>
           </div>
 
