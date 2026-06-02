@@ -15,10 +15,14 @@ import {
     query,
     where,
     getDocs,
+    updateDoc,
+    addDoc,
+    doc,
 } from "firebase/firestore";
 
 // Next.js Navigation
 import { useSearchParams } from "next/navigation";
+import { toast } from "react-toastify";
 
 // IndexedDB Caching
 const pupilStore = localforage.createInstance({ name: "TeacherDataCache", storeName: "teacher_pupils" });
@@ -44,6 +48,7 @@ const SubmittedGrades = () => {
     const [pupils, setPupils] = useState([]);
     const [gradesData, setGradesData] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [editingGrades, setEditingGrades] = useState({});
 
     const tests = ["Term 1 T1", "Term 1 T2", "Term 2 T1", "Term 2 T2", "Term 3 T1", "Term 3 T2"];
 
@@ -91,7 +96,7 @@ const SubmittedGrades = () => {
         });
 
         return () => unsub();
-    }, [schoolId, isFormTeacher, assignedClass, academicYear, selectedClass]);
+    }, [schoolId, isFormTeacher, assignedClass]);
 
     // 3. Fetch Pupils (with Cache)
     useEffect(() => {
@@ -149,55 +154,75 @@ const SubmittedGrades = () => {
     useEffect(() => { fetchGrades(); }, [fetchGrades]);
 
     // 5. Memoized Data Mapping
-    const { subjects, pupilGradesMap } = useMemo(() => {
+    const { subjects, gradeDocMap, pupilGradesMap } = useMemo(() => {
         const uniqueSubjects = [...new Set(gradesData.map(g => g.subject))].sort();
+        const docMap = {};
         const gMap = {};
 
         gradesData.forEach(g => {
+            if (!docMap[g.subject]) docMap[g.subject] = {};
             if (!gMap[g.subject]) gMap[g.subject] = {};
+            docMap[g.subject][g.pupilID] = g.gradeDocId;
             gMap[g.subject][g.pupilID] = g.grade;
         });
 
-        return { subjects: uniqueSubjects, pupilGradesMap: gMap };
+        return { subjects: uniqueSubjects, gradeDocMap: docMap, pupilGradesMap: gMap };
     }, [gradesData]);
+
+    const handleSave = async (pupilID, subject, gradeDocId) => {
+        const key = `${pupilID}-${subject}`;
+        const inputVal = editingGrades[key]?.value;
+        if (inputVal === undefined || inputVal === "") return toast.error("Enter a grade");
+        const val = parseFloat(inputVal);
+
+        try {
+            if (gradeDocId) {
+                await updateDoc(doc(pupilresult, "PupilGrades", gradeDocId), { grade: val });
+            } else {
+                await addDoc(collection(pupilresult, "PupilGrades"), {
+                    schoolId, pupilID, subject, grade: val,
+                    className: selectedClass, academicYear, test: selectedTest,
+                    createdAt: new Date().toISOString()
+                });
+            }
+            toast.success("Grade Saved");
+            setEditingGrades(prev => { const n = {...prev}; delete n[key]; return n; });
+            fetchGrades();
+        } catch (e) { toast.error("Error saving"); }
+    };
 
     return (
         <div className="max-w-7xl mx-auto p-6 bg-white rounded-2xl shadow-xl border border-gray-100">
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b pb-6">
                 <div>
-                    <h2 className="text-3xl font-extrabold text-indigo-900">Submitted Academic Ledger</h2>
-                    <p className="text-gray-500 text-sm">Reviewing Records for: <span className="font-bold text-indigo-600">{selectedClass}</span></p>
+                    <h2 className="text-3xl font-extrabold text-indigo-900">Form Master Grade Entry</h2>
+                    <p className="text-gray-500 text-sm">Managing: <span className="font-bold text-indigo-600">{selectedClass}</span></p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="bg-amber-100 text-amber-800 px-4 py-1.5 rounded-full text-xs font-bold border border-amber-200 uppercase tracking-wider">
-                        👁️ View Only Mode
+                {isFormTeacher && (
+                    <span className="bg-green-100 text-green-700 px-4 py-1.5 rounded-full text-xs font-bold border border-green-200">
+                        🔒 LOCKED TO: {assignedClass}
                     </span>
-                    {isFormTeacher && (
-                        <span className="bg-green-100 text-green-700 px-4 py-1.5 rounded-full text-xs font-bold border border-green-200">
-                            🔒 LOCKED TO: {assignedClass}
-                        </span>
-                    )}
-                </div>
+                )}
             </div>
 
             {/* Selectors */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100">
                 <div>
                     <label className="block text-xs font-bold text-indigo-700 mb-2 uppercase">Academic Year</label>
-                    <select className="w-full p-2.5 rounded-xl border-gray-200 bg-white shadow-sm" value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+                    <select className="w-full p-2.5 rounded-xl border-gray-200" value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
                         {academicYears.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                 </div>
                 <div>
                     <label className="block text-xs font-bold text-indigo-700 mb-2 uppercase">Class</label>
-                    <select className="w-full p-2.5 rounded-xl border-gray-200 bg-white shadow-sm disabled:bg-gray-100 text-gray-900" value={selectedClass} disabled={isFormTeacher} onChange={e => setSelectedClass(e.target.value)}>
+                    <select className="w-full p-2.5 rounded-xl border-gray-200 disabled:bg-gray-100 text-gray-900" value={selectedClass} disabled={isFormTeacher} onChange={e => setSelectedClass(e.target.value)}>
                         {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                 </div>
                 <div>
                     <label className="block text-xs font-bold text-indigo-700 mb-2 uppercase">Assessment</label>
-                    <select className="w-full p-2.5 rounded-xl border-gray-200 bg-white shadow-sm" value={selectedTest} onChange={e => setSelectedTest(e.target.value)}>
+                    <select className="w-full p-2.5 rounded-xl border-gray-200" value={selectedTest} onChange={e => setSelectedTest(e.target.value)}>
                         {tests.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
@@ -205,16 +230,16 @@ const SubmittedGrades = () => {
 
             {/* Table */}
             {loading ? (
-                <div className="flex justify-center p-20 animate-pulse text-indigo-600 font-bold">Syncing Ledger View...</div>
+                <div className="flex justify-center p-20 animate-pulse text-indigo-600 font-bold">Syncing Records...</div>
             ) : subjects.length > 0 ? (
                 <div className="overflow-x-auto rounded-2xl border border-gray-200">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-indigo-600 text-white">
                             <tr>
-                                <th className="px-6 py-4 text-left sticky left-0 bg-indigo-700 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.1)]">Subject</th>
+                                <th className="px-6 py-4 text-left sticky left-0 bg-indigo-700 z-10">Subject</th>
                                 {pupils.map(p => (
                                     <th key={p.studentID} className="px-4 py-4 text-center min-w-[150px] border-l border-indigo-500/30">
-                                        <p className="text-[10px] opacity-70 tracking-wide font-mono">{p.studentID}</p>
+                                        <p className="text-[10px] opacity-70">{p.studentID}</p>
                                         <p className="text-sm font-semibold truncate">{p.studentName}</p>
                                     </th>
                                 ))}
@@ -223,23 +248,28 @@ const SubmittedGrades = () => {
                         <tbody className="bg-white divide-y divide-gray-100">
                             {subjects.map(sub => (
                                 <tr key={sub} className="hover:bg-indigo-50/30 transition-colors">
-                                    <td className="px-6 py-4 font-bold text-gray-800 border-r bg-gray-50 sticky left-0 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">{sub}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-800 border-r bg-gray-50 sticky left-0 z-10">{sub}</td>
                                     {pupils.map(p => {
-                                        const finalGrade = pupilGradesMap[sub]?.[p.studentID];
-                                        const isMissing = finalGrade === undefined || finalGrade === null || finalGrade === "";
-                                        
+                                        const gradeDocId = gradeDocMap[sub]?.[p.studentID];
+                                        const currentVal = editingGrades[`${p.studentID}-${sub}`]?.value ?? pupilGradesMap[sub]?.[p.studentID] ?? "";
+                                        const isEdited = editingGrades[`${p.studentID}-${sub}`] !== undefined;
                                         return (
                                             <td key={p.studentID} className="px-3 py-4 text-center border-r">
-                                                <div className="flex flex-col items-center justify-center">
-                                                    {isMissing ? (
-                                                        <span className="text-xs text-gray-400 italic font-medium px-2.5 py-1 bg-gray-50 border border-gray-200/60 rounded-md">
-                                                            N/A
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-sm font-black text-slate-800 bg-slate-100/80 px-3 py-1 rounded-md min-w-[3.5rem] inline-block border border-slate-200/40 shadow-sm font-mono">
-                                                            {finalGrade}
-                                                        </span>
-                                                    )}
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <input 
+                                                        type="number"
+                                                        className={`w-20 p-2 text-center text-sm font-bold border-2 rounded-lg text-gray-900 ${isEdited ? 'border-orange-400 bg-orange-50' : 'border-gray-100'}`}
+                                                        value={currentVal}
+                                                        onChange={(e) => setEditingGrades(prev => ({
+                                                            ...prev, [`${p.studentID}-${sub}`]: { value: e.target.value }
+                                                        }))}
+                                                    />
+                                                    <button 
+                                                        onClick={() => handleSave(p.studentID, sub, gradeDocId)}
+                                                        className={`w-full py-1 rounded-md text-[10px] font-bold transition-all ${isEdited ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 text-gray-400 cursor-default'}`}
+                                                    >
+                                                        {isEdited ? 'SAVE' : 'SAVED'}
+                                                    </button>
                                                 </div>
                                             </td>
                                         );
@@ -250,8 +280,8 @@ const SubmittedGrades = () => {
                     </table>
                 </div>
             ) : (
-                <div className="text-center p-20 bg-gray-50 border-2 border-dashed rounded-2xl text-gray-400 font-medium">
-                    No confirmed grade sheets discovered matching this context.
+                <div className="text-center p-20 bg-gray-50 border-2 border-dashed rounded-2xl text-gray-400">
+                    No grade records found for the selected assessment.
                 </div>
             )}
         </div>

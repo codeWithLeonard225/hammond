@@ -15,7 +15,7 @@ import {
     limit,
     getDocs,
     deleteDoc,
-    writeBatch,
+    writeBatch, // Add this
 } from "firebase/firestore";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
@@ -86,9 +86,7 @@ const GradesAuditPage = () => {
 
         const unsub = onSnapshot(qAssignments, (snapshot) => {
             const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            
-            // Sort unique teachers alphabetically
-            const uniqueTeachers = [...new Set(data.map(a => a.teacher))].sort((a, b) => a.localeCompare(b));
+            const uniqueTeachers = [...new Set(data.map(a => a.teacher))].sort();
             setAllTeachers(uniqueTeachers);
 
             let uniqueAssignments = data.reduce((acc, assignment) => {
@@ -103,15 +101,7 @@ const GradesAuditPage = () => {
                     acc.push({ ...assignment, subjects: [...assignment.subjects] });
                 }
                 return acc;
-            }, []);
-
-            // Sort internal subjects array inside each class configuration alphabetically
-            uniqueAssignments.forEach(assignment => {
-                assignment.subjects.sort((a, b) => a.localeCompare(b));
-            });
-
-            // Sort entire assignment configuration array by className alphabetically
-            uniqueAssignments.sort((a, b) => a.className.localeCompare(b.className));
+            }, []).sort((a, b) => a.className.localeCompare(b.className));
 
             // 🔥 APPLY LOCK LOGIC: Filter assignments if Form Teacher
             if (isFormTeacher && assignedClass) {
@@ -128,7 +118,7 @@ const GradesAuditPage = () => {
             setAssignments(uniqueAssignments);
         });
         return () => unsub();
-    }, [schoolId, isFormTeacher, assignedClass, selectedClass]);
+    }, [schoolId, isFormTeacher, assignedClass]);
 
     // --- 3️⃣ Fetch latest academic year ---
     useEffect(() => {
@@ -227,60 +217,67 @@ const GradesAuditPage = () => {
         });
     };
 
-    // --- Submit All Grades at Once ---
-    const handleSubmitAll = async () => {
-        const pendingIDs = Object.keys(updatedGrades);
-        if (pendingIDs.length === 0) return toast.info("No changes to submit");
-        
-        if (!window.confirm(`Are you sure you want to submit ${pendingIDs.length} changes at once?`)) return;
 
-        setSubmitting(true);
-        const batch = writeBatch(pupilresult); 
+    // --- NEW: Submit All Grades at Once ---
+   const handleSubmitAll = async () => {
+    const pendingIDs = Object.keys(updatedGrades);
+    if (pendingIDs.length === 0) return toast.info("No changes to submit");
+    
+    if (!window.confirm(`Are you sure you want to submit ${pendingIDs.length} changes at once?`)) return;
 
-        try {
-            pendingIDs.forEach((pupilID) => {
-                const newValue = updatedGrades[pupilID];
-                const gradeData = currentGrades[pupilID];
+    setSubmitting(true);
+    // 2. Initialize batch with the correct firestore instance
+    const batch = writeBatch(pupilresult); 
 
-                if (gradeData && newValue === null) {
-                    batch.delete(doc(pupilresult, "PupilGrades", gradeData.docId));
-                } else if (typeof newValue === "number") {
-                    if (gradeData) {
-                        batch.set(doc(pupilresult, "PupilGrades", gradeData.docId), {
-                            grade: newValue,
-                            lastModifiedByAdmin: serverTimestamp(),
-                        }, { merge: true });
-                    } else {
-                        const newDocRef = doc(collection(pupilresult, "PupilGrades"));
-                        batch.set(newDocRef, {
-                            pupilID,
-                            className: selectedClass,
-                            subject: selectedSubject,
-                            teacher: "Admin Bulk Override",
-                            grade: newValue,
-                            test: selectedTest,
-                            academicYear,
-                            schoolId,
-                            timestamp: serverTimestamp(),
-                            lastModifiedByAdmin: serverTimestamp(),
-                        });
-                    }
+    try {
+        pendingIDs.forEach((pupilID) => {
+            const newValue = updatedGrades[pupilID];
+            const gradeData = currentGrades[pupilID];
+
+            if (gradeData && newValue === null) {
+                // DELETE: Use pupilresult consistently
+                batch.delete(doc(pupilresult, "PupilGrades", gradeData.docId));
+            } else if (typeof newValue === "number") {
+                if (gradeData) {
+                    // UPDATE
+                    batch.set(doc(pupilresult, "PupilGrades", gradeData.docId), {
+                        grade: newValue,
+                        lastModifiedByAdmin: serverTimestamp(),
+                    }, { merge: true });
+                } else {
+                    // CREATE: Ensure the collection path matches your database structure
+                    const newDocRef = doc(collection(pupilresult, "PupilGrades"));
+                    batch.set(newDocRef, {
+                        pupilID,
+                        className: selectedClass,
+                        subject: selectedSubject,
+                        teacher: "Admin Bulk Override",
+                        grade: newValue,
+                        test: selectedTest,
+                        academicYear,
+                        schoolId,
+                        timestamp: serverTimestamp(),
+                        lastModifiedByAdmin: serverTimestamp(),
+                    });
                 }
-            });
+            }
+        });
 
-            await batch.commit();
-            
-            setUpdatedGrades({});
-            await gradesStore.setItem("pendingUpdates", {});
-            toast.success("Successfully submitted all changes!");
-            fetchGrades(); 
-        } catch (err) {
-            console.error("Bulk upload error:", err);
-            toast.error("Failed to submit all grades");
-        } finally {
-            setSubmitting(false);
-        }
-    };
+        await batch.commit();
+        
+        // 3. Cleanup state and cache
+        setUpdatedGrades({});
+        await gradesStore.setItem("pendingUpdates", {});
+        toast.success("Successfully submitted all changes!");
+        fetchGrades(); 
+    } catch (err) {
+        console.error("Bulk upload error:", err);
+        toast.error("Failed to submit all grades");
+    } finally {
+        setSubmitting(false);
+    }
+};
+
 
     const handleAdminAction = async (pupilID) => {
         setSubmitting(true);

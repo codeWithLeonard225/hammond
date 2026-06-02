@@ -101,9 +101,18 @@ useEffect(() => {
         const pupilsData = snapshot.docs.map(d => ({ id: d.id, studentID: d.id, ...d.data() }));
         await localforage.setItem(`pupils_${schoolId}_${academicYear}`, pupilsData);
         
-        const classPupils = pupilsData
-          .filter(p => p.class === selectedClass)
-          .sort((a, b) => a.studentName?.localeCompare(b.studentName));
+      const classPupils = pupilsData
+  .filter(p => p.class === selectedClass)
+  .sort((a, b) =>
+    (a.studentName || "")
+      .trim()
+      .toLowerCase()
+      .localeCompare(
+        (b.studentName || "")
+          .trim()
+          .toLowerCase()
+      )
+  );
         setPupils(classPupils);
         
         const initialGrades = {};
