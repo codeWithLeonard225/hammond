@@ -129,77 +129,80 @@ const TermResult = () => {
   }, [academicYear, selectedClass, schoolId]);
 
   // --- 3. COMPUTATION (BroadSheet Engine) ---
-  const broadSheet = useMemo(() => {
-    if (classGradesData.length === 0 || pupils.length === 0)
-      return { subjects: [], studentMap: {}, summaries: {} };
+const broadSheet = useMemo(() => {
+  if (classGradesData.length === 0 || pupils.length === 0)
+    return { subjects: [], studentMap: {}, summaries: {} };
 
-    const uniqueSubjects = [...new Set(classGradesData.map((d) => d.subject))].sort();
+  const uniqueSubjects = [...new Set(classGradesData.map((d) => d.subject))].sort();
 
-    const classInfo = classesCache.find(
-      (c) => c.schoolId === schoolId && c.className === selectedClass
-    );
-    const totalSubjectPercentage = classInfo?.subjectPercentage || uniqueSubjects.length * 100;
+  const classInfo = classesCache.find(
+    (c) => c.schoolId === schoolId && c.className === selectedClass
+  );
+  const totalSubjectPercentage = classInfo?.subjectPercentage || uniqueSubjects.length * 100;
 
-    const studentMap = {};
-    const summaries = {};
-    const subjectRanks = {};
+  const studentMap = {};
+  const summaries = {};
+  const subjectRanks = {};
 
-    uniqueSubjects.forEach((subject) => {
-      const scores = pupils.map((p) => {
-        const g = classGradesData.filter((x) => x.pupilID === p.studentID && x.subject === subject);
-        const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
-        const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
-        return { id: p.studentID, mean: (t1 + t2) / 2 };
-      });
-      scores.sort((a, b) => b.mean - a.mean);
-      scores.forEach((s, i) => {
-        s.rank = i > 0 && s.mean === scores[i - 1].mean ? scores[i - 1].rank : i + 1;
-      });
-      subjectRanks[subject] = scores;
+  uniqueSubjects.forEach((subject) => {
+    const scores = pupils.map((p) => {
+      const g = classGradesData.filter((x) => x.pupilID === p.studentID && x.subject === subject);
+      const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
+      const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
+      // 🔥 UPDATED: Summed test scores directly instead of dividing by 2
+      return { id: p.studentID, mean: t1 + t2 };
     });
-
-    const overallScores = pupils.map((p) => {
-      const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
-      const total = uniqueSubjects.reduce((acc, sub) => {
-        const g = pData.filter((x) => x.subject === sub);
-        const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
-        const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
-        return acc + (t1 + t2) / 2;
-      }, 0);
-      return { id: p.studentID, total };
+    scores.sort((a, b) => b.mean - a.mean);
+    scores.forEach((s, i) => {
+      s.rank = i > 0 && s.mean === scores[i - 1].mean ? scores[i - 1].rank : i + 1;
     });
+    subjectRanks[subject] = scores;
+  });
 
-    overallScores.sort((a, b) => b.total - a.total);
-    overallScores.forEach((s, i) => {
-      s.pos = i > 0 && s.total === overallScores[i - 1].total ? overallScores[i - 1].pos : i + 1;
-    });
+  const overallScores = pupils.map((p) => {
+    const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
+    const total = uniqueSubjects.reduce((acc, sub) => {
+      const g = pData.filter((x) => x.subject === sub);
+      const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
+      const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
+      // 🔥 UPDATED: Summed test scores directly instead of dividing by 2
+      return acc + (t1 + t2);
+    }, 0);
+    return { id: p.studentID, total };
+  });
 
-    pupils.forEach((pupil) => {
-      const results = {};
-      uniqueSubjects.forEach((sub) => {
-        const g = classGradesData.filter((x) => x.pupilID === pupil.studentID && x.subject === sub);
-        const t1 = g.find((x) => x.test === tests[0])?.grade || 0;
-        const t2 = g.find((x) => x.test === tests[1])?.grade || 0;
-        results[sub] = {
-          t1,
-          t2,
-          mean: Math.round((Number(t1) + Number(t2)) / 2),
-          rank: subjectRanks[sub].find((s) => s.id === pupil.studentID)?.rank || "—",
-        };
-      });
-      studentMap[pupil.studentID] = results;
+  overallScores.sort((a, b) => b.total - a.total);
+  overallScores.forEach((s, i) => {
+    s.pos = i > 0 && s.total === overallScores[i - 1].total ? overallScores[i - 1].pos : i + 1;
+  });
 
-      const ov = overallScores.find((o) => o.id === pupil.studentID);
-
-      summaries[pupil.studentID] = {
-        total: Math.round(ov.total),
-        perc: totalSubjectPercentage > 0 ? ((ov.total / totalSubjectPercentage) * 100).toFixed(1) : 0,
-        rank: ov.pos,
+  pupils.forEach((pupil) => {
+    const results = {};
+    uniqueSubjects.forEach((sub) => {
+      const g = classGradesData.filter((x) => x.pupilID === pupil.studentID && x.subject === sub);
+      const t1 = g.find((x) => x.test === tests[0])?.grade || 0;
+      const t2 = g.find((x) => x.test === tests[1])?.grade || 0;
+      results[sub] = {
+        t1,
+        t2,
+        // 🔥 UPDATED: Total direct sum value mapped for UI and export row rendering
+        mean: Math.round(Number(t1) + Number(t2)),
+        rank: subjectRanks[sub].find((s) => s.id === pupil.studentID)?.rank || "—",
       };
     });
+    studentMap[pupil.studentID] = results;
 
-    return { subjects: uniqueSubjects, studentMap, summaries };
-  }, [classGradesData, pupils, tests, classesCache, schoolId, selectedClass]);
+    const ov = overallScores.find((o) => o.id === pupil.studentID);
+
+    summaries[pupil.studentID] = {
+      total: Math.round(ov.total),
+      perc: totalSubjectPercentage > 0 ? ((ov.total / totalSubjectPercentage) * 100).toFixed(1) : 0,
+      rank: ov.pos,
+    };
+  });
+
+  return { subjects: uniqueSubjects, studentMap, summaries };
+}, [classGradesData, pupils, tests, classesCache, schoolId, selectedClass]);
 
   // --- 4. EXPORT ---
   const handlePrint = () => {

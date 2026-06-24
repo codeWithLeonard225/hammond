@@ -127,66 +127,70 @@ const email = searchParams.get("email");
   }, [academicYear, selectedClass, selectedPupil, schoolId]);
 
   // 6. CALCULATE REPORT
-  const { reportRows, totalMarks, overallPercentage, overallRank } = useMemo(() => {
-    if (pupilGradesData.length === 0)
-      return { reportRows: [], totalMarks: 0, overallPercentage: 0, overallRank: "—" };
+// 6. CALCULATE REPORT
+const { reportRows, totalMarks, overallPercentage, overallRank } = useMemo(() => {
+  if (pupilGradesData.length === 0)
+    return { reportRows: [], totalMarks: 0, overallPercentage: 0, overallRank: "—" };
 
-    const pupilIDs = [...new Set(classGradesData.map((d) => d.pupilID))];
-    const uniqueSubjects = [...new Set(pupilGradesData.map((d) => d.subject))].sort();
+  const pupilIDs = [...new Set(classGradesData.map((d) => d.pupilID))];
+  const uniqueSubjects = [...new Set(pupilGradesData.map((d) => d.subject))].sort();
 
-    const classInfo = classesCache.find(c => c.schoolId === schoolId && c.className === selectedClass);
-    const totalSubjectPercentage = classInfo?.subjectPercentage || (uniqueSubjects.length * 100);
+  const classInfo = classesCache.find(c => c.schoolId === schoolId && c.className === selectedClass);
+  const totalSubjectPercentage = classInfo?.subjectPercentage || (uniqueSubjects.length * 100);
 
-    const classMeansBySubject = {};
-    for (const subject of uniqueSubjects) {
-      const subjectScores = pupilIDs.map((id) => {
-        const g = classGradesData.filter(x => x.pupilID === id && x.subject === subject);
-        const t1 = g.find(x => x.test === tests[0])?.grade || 0;
-        const t2 = g.find(x => x.test === tests[1])?.grade || 0;
-        return { id, mean: (Number(t1) + Number(t2)) / 2 };
-      });
-      subjectScores.sort((a, b) => b.mean - a.mean);
-      subjectScores.forEach((x, i) => {
-        if (i > 0 && x.mean === subjectScores[i - 1].mean) x.rank = subjectScores[i - 1].rank;
-        else x.rank = i + 1;
-      });
-      classMeansBySubject[subject] = subjectScores;
-    }
-
-    let totalSum = 0;
-    const subjectData = uniqueSubjects.map(subject => {
-      const t1 = pupilGradesData.find(g => g.subject === subject && g.test === tests[0])?.grade || 0;
-      const t2 = pupilGradesData.find(g => g.subject === subject && g.test === tests[1])?.grade || 0;
-      const rawMean = (Number(t1) + Number(t2)) / 2;
-      totalSum += rawMean;
-      const mean = Math.round(rawMean);
-      const rank = classMeansBySubject[subject]?.find(s => s.id === selectedPupil)?.rank || "—";
-      return { subject, test1: t1, test2: t2, mean, rank };
+  const classMeansBySubject = {};
+  for (const subject of uniqueSubjects) {
+    const subjectScores = pupilIDs.map((id) => {
+      const g = classGradesData.filter(x => x.pupilID === id && x.subject === subject);
+      const t1 = g.find(x => x.test === tests[0])?.grade || 0;
+      const t2 = g.find(x => x.test === tests[1])?.grade || 0;
+      // 🔥 UPDATED: Summing test grades directly instead of dividing by 2
+      return { id, mean: Number(t1) + Number(t2) };
     });
-
-    const overallScores = pupilIDs.map(id => {
-      const pupilData = classGradesData.filter(x => x.pupilID === id);
-      const subjectsForPupil = [...new Set(pupilData.map(d => d.subject))];
-      const totalMean = subjectsForPupil.reduce((acc, subject) => {
-        const t1 = pupilData.find(x => x.subject === subject && x.test === tests[0])?.grade || 0;
-        const t2 = pupilData.find(x => x.subject === subject && x.test === tests[1])?.grade || 0;
-        return acc + (Number(t1) + Number(t2)) / 2;
-      }, 0);
-      return { id, totalMean };
-    });
-
-    overallScores.sort((a, b) => b.totalMean - a.totalMean);
-    overallScores.forEach((x, i) => {
-      if (i > 0 && x.totalMean === overallScores[i - 1].totalMean) x.rank = overallScores[i - 1].rank;
+    subjectScores.sort((a, b) => b.mean - a.mean);
+    subjectScores.forEach((x, i) => {
+      if (i > 0 && x.mean === subjectScores[i - 1].mean) x.rank = subjectScores[i - 1].rank;
       else x.rank = i + 1;
     });
+    classMeansBySubject[subject] = subjectScores;
+  }
 
-    const overallRank = overallScores.find(x => x.id === selectedPupil)?.rank || "—";
-    const totalMarks = Math.round(totalSum);
-    const overallPercentage = totalSubjectPercentage > 0 ? ((totalSum / totalSubjectPercentage) * 100).toFixed(1) : 0;
+  let totalSum = 0;
+  const subjectData = uniqueSubjects.map(subject => {
+    const t1 = pupilGradesData.find(g => g.subject === subject && g.test === tests[0])?.grade || 0;
+    const t2 = pupilGradesData.find(g => g.subject === subject && g.test === tests[1])?.grade || 0;
+    // 🔥 UPDATED: Straight summation for student subject score
+    const rawMean = Number(t1) + Number(t2);
+    totalSum += rawMean;
+    const mean = Math.round(rawMean);
+    const rank = classMeansBySubject[subject]?.find(s => s.id === selectedPupil)?.rank || "—";
+    return { subject, test1: t1, test2: t2, mean, rank };
+  });
 
-    return { reportRows: subjectData, totalMarks, overallPercentage, overallRank };
-  }, [pupilGradesData, classGradesData, selectedPupil, selectedTerm, selectedClass, classesCache, tests, schoolId]);
+  const overallScores = pupilIDs.map(id => {
+    const pupilData = classGradesData.filter(x => x.pupilID === id);
+    const subjectsForPupil = [...new Set(pupilData.map(d => d.subject))];
+    const totalMean = subjectsForPupil.reduce((acc, subject) => {
+      const t1 = pupilData.find(x => x.subject === subject && x.test === tests[0])?.grade || 0;
+      const t2 = pupilData.find(x => x.subject === subject && x.test === tests[1])?.grade || 0;
+      // 🔥 UPDATED: Summing values to build context rank profiles
+      return acc + (Number(t1) + Number(t2));
+    }, 0);
+    return { id, totalMean };
+  });
+
+  overallScores.sort((a, b) => b.totalMean - a.totalMean);
+  overallScores.forEach((x, i) => {
+    if (i > 0 && x.totalMean === overallScores[i - 1].totalMean) x.rank = overallScores[i - 1].rank;
+    else x.rank = i + 1;
+  });
+
+  const overallRank = overallScores.find(x => x.id === selectedPupil)?.rank || "—";
+  const totalMarks = Math.round(totalSum);
+  const overallPercentage = totalSubjectPercentage > 0 ? ((totalSum / totalSubjectPercentage) * 100).toFixed(1) : 0;
+
+  return { reportRows: subjectData, totalMarks, overallPercentage, overallRank };
+}, [pupilGradesData, classGradesData, selectedPupil, selectedTerm, selectedClass, classesCache, tests, schoolId]);
 
   const pupilInfo = useMemo(() => pupils.find((p) => p.studentID === selectedPupil) || null, [pupils, selectedPupil]);
 

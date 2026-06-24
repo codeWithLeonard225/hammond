@@ -167,44 +167,46 @@ const SubGradeMatrixPage = () => {
     }, [academicYear, selectedClass, schoolId, fetchClassGrades]);
 
     // 3. MATRIX LOGIC
-    const { pupilMatrix } = useMemo(() => {
-        if (classGradesData.length === 0 || pupils.length === 0 || !selectedSubject) return { pupilMatrix: [] };
+  // --- 3. MATRIX LOGIC ---
+const { pupilMatrix } = useMemo(() => {
+    if (classGradesData.length === 0 || pupils.length === 0 || !selectedSubject) return { pupilMatrix: [] };
 
-        const matrix = pupils.map((pupil) => {
-            const pGrades = classGradesData.filter(g => g.pupilID === pupil.studentID && g.subject === selectedSubject && tests.includes(g.test));
-            const t1 = pGrades.find(g => g.test === test1Name)?.grade || "—";
-            const t2 = pGrades.find(g => g.test === test2Name)?.grade || "—";
+    const matrix = pupils.map((pupil) => {
+        const pGrades = classGradesData.filter(g => g.pupilID === pupil.studentID && g.subject === selectedSubject && tests.includes(g.test));
+        const t1 = pGrades.find(g => g.test === test1Name)?.grade || "—";
+        const t2 = pGrades.find(g => g.test === test2Name)?.grade || "—";
 
-            let total = 0, count = 0;
-            if (t1 !== "—") { total += Number(t1); count++; }
-            if (t2 !== "—") { total += Number(t2); count++; }
+        let total = 0, count = 0;
+        if (t1 !== "—") { total += Number(t1); count++; }
+        if (t2 !== "—") { total += Number(t2); count++; }
 
-            const mean = count > 0 ? Math.round(total / count) : "—";
-            return {
-                studentID: pupil.studentID,
-                studentName: pupil.studentName,
-                test1: t1,
-                test2: t2,
-                mean: mean,
-                rawMean: mean === "—" ? -1 : mean,
-                rank: "—"
-            };
-        });
-
-        // Ranking Logic
-        const ranked = [...matrix].filter(p => p.rawMean !== -1).sort((a, b) => b.rawMean - a.rawMean);
-        ranked.forEach((p, i) => {
-            if (i > 0 && p.rawMean === ranked[i - 1].rawMean) p.rank = ranked[i - 1].rank;
-            else p.rank = i + 1;
-        });
-
-        return { 
-            pupilMatrix: matrix.map(p => {
-                const r = ranked.find(rk => rk.studentID === p.studentID);
-                return r ? { ...p, rank: r.rank } : p;
-            })
+        // 🔥 UPDATED: Straight summation of continuous test grades directly instead of an average division
+        const mean = count > 0 ? Math.round(total) : "—";
+        return {
+            studentID: pupil.studentID,
+            studentName: pupil.studentName,
+            test1: t1,
+            test2: t2,
+            mean: mean,
+            rawMean: mean === "—" ? -1 : mean,
+            rank: "—"
         };
-    }, [classGradesData, pupils, selectedSubject, selectedTerm, test1Name, test2Name]);
+    });
+
+    // Ranking Logic
+    const ranked = [...matrix].filter(p => p.rawMean !== -1).sort((a, b) => b.rawMean - a.rawMean);
+    ranked.forEach((p, i) => {
+        if (i > 0 && p.rawMean === ranked[i - 1].rawMean) p.rank = ranked[i - 1].rank;
+        else p.rank = i + 1;
+    });
+
+    return { 
+        pupilMatrix: matrix.map(p => {
+            const r = ranked.find(rk => rk.studentID === p.studentID);
+            return r ? { ...p, rank: r.rank } : p;
+        })
+    };
+}, [classGradesData, pupils, selectedSubject, selectedTerm, test1Name, test2Name]);
 
     // 4. PDF GENERATOR
     const handlePrintPDF = () => {

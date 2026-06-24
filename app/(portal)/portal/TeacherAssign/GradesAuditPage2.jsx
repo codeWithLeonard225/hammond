@@ -19,46 +19,46 @@ import {
 } from "firebase/firestore";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
-import jsPDF from "jspdf"; 
+import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import localforage from "localforage";
 import { toast } from "react-toastify";
 
-// Initialize localforage store
 const gradesStore = localforage.createInstance({
     name: "GradesAudit",
-    storeName: "pupilGrades",
+    storeName: "pupilGradesSheet",
 });
 
-const GradesAuditPage = () => {
+const GradeSheetPage = () => {
     const searchParams = useSearchParams();
     const { user } = useAuth();
-    
-    // Extract school details
+
     const schoolId = searchParams.get("schoolId") || user?.schoolId || "N/A";
     const schoolName = searchParams.get("schoolName") || "School Admin";
 
     // --- STATE MANAGEMENT ---
     const [liveTeacherInfo, setLiveTeacherInfo] = useState(null);
-    const [allTeachers, setAllTeachers] = useState([]);
-    const [selectedTeacherName, setSelectedTeacherName] = useState(""); 
-    const [currentGrades, setCurrentGrades] = useState({}); 
-    const [updatedGrades, setUpdatedGrades] = useState({}); 
     const [assignments, setAssignments] = useState([]);
     const [pupils, setPupils] = useState([]);
+    const [allSubjectsList, setAllSubjectsList] = useState([]);
+
+    // Filters
     const [selectedClass, setSelectedClass] = useState("");
-    const [selectedSubject, setSelectedSubject] = useState("");
+    const [selectedPupilId, setSelectedPupilId] = useState("");
     const [selectedTest, setSelectedTest] = useState("Term 1 T1");
     const [academicYear, setAcademicYear] = useState("");
+
+    // Grades State for the current targeted Pupil
+    const [currentGrades, setCurrentGrades] = useState({});
+    const [updatedGrades, setUpdatedGrades] = useState({});
     const [submitting, setSubmitting] = useState(false);
 
-    // Form Teacher Lock Values
     const isFormTeacher = liveTeacherInfo?.isFormTeacher ?? user?.data?.isFormTeacher;
     const assignedClass = liveTeacherInfo?.assignClass ?? user?.data?.assignClass;
 
-    const tests = ["Term 1 T1", "Term 1 T2", "Term 2 T1", "Term 2 T2","Term 3 T1", "Term 3 T2"];
+    const tests = ["Term 1 T1", "Term 1 T2", "Term 2 T1", "Term 2 T2", "Term 3 T1", "Term 3 T2"];
 
-    // --- 1️⃣ Real-time Teacher Info (Form Teacher Lock) ---
+    // 1️⃣ Real-time Teacher Info (Form Teacher Lock)
     useEffect(() => {
         if (!user?.data?.teacherID || !schoolId || schoolId === "N/A") return;
 
@@ -76,28 +76,19 @@ const GradesAuditPage = () => {
         return () => unsubscribe();
     }, [user, schoolId]);
 
-    // --- 2️⃣ Fetch Assignments & Apply Lock Logic ---
+    // 2️⃣ Fetch Assignments, Map Available Subjects, and Handle Lock Logic
     useEffect(() => {
         if (!schoolId || schoolId === "N/A") return;
-        const qAssignments = query(
-            collection(db, "TeacherAssignments"),
-            where("schoolId", "==", schoolId)
-        );
+        const qAssignments = query(collection(db, "TeacherAssignments"), where("schoolId", "==", schoolId));
 
         const unsub = onSnapshot(qAssignments, (snapshot) => {
             const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            
-            // Sort unique teachers alphabetically
-            const uniqueTeachers = [...new Set(data.map(a => a.teacher))].sort((a, b) => a.localeCompare(b));
-            setAllTeachers(uniqueTeachers);
 
             let uniqueAssignments = data.reduce((acc, assignment) => {
                 const existing = acc.find(a => a.className === assignment.className);
                 if (existing) {
                     assignment.subjects.forEach(subject => {
-                        if (!existing.subjects.includes(subject)) {
-                            existing.subjects.push(subject);
-                        }
+                        if (!existing.subjects.includes(subject)) existing.subjects.push(subject);
                     });
                 } else {
                     acc.push({ ...assignment, subjects: [...assignment.subjects] });
@@ -105,32 +96,32 @@ const GradesAuditPage = () => {
                 return acc;
             }, []);
 
-            // Sort internal subjects array inside each class configuration alphabetically
-            uniqueAssignments.forEach(assignment => {
-                assignment.subjects.sort((a, b) => a.localeCompare(b));
-            });
-
-            // Sort entire assignment configuration array by className alphabetically
+            uniqueAssignments.forEach(a => a.subjects.sort((a, b) => a.localeCompare(b)));
             uniqueAssignments.sort((a, b) => a.className.localeCompare(b.className));
 
-            // 🔥 APPLY LOCK LOGIC: Filter assignments if Form Teacher
             if (isFormTeacher && assignedClass) {
                 uniqueAssignments = uniqueAssignments.filter(a => a.className === assignedClass);
                 setSelectedClass(assignedClass);
-                if (uniqueAssignments.length > 0) setSelectedSubject(uniqueAssignments[0].subjects[0]);
-            } else {
-                if (uniqueAssignments.length > 0 && !selectedClass) {
-                    setSelectedClass(uniqueAssignments[0].className);
-                    setSelectedSubject(uniqueAssignments[0].subjects[0]);
-                }
+            } else if (uniqueAssignments.length > 0 && !selectedClass) {
+                setSelectedClass(uniqueAssignments[0].className);
             }
-            
+
             setAssignments(uniqueAssignments);
         });
         return () => unsub();
-    }, [schoolId, isFormTeacher, assignedClass, selectedClass]);
+    }, [schoolId, isFormTeacher, assignedClass]);
 
-    // --- 3️⃣ Fetch latest academic year ---
+    // Extract subjects dynamically whenever the class changes
+    useEffect(() => {
+        const currentAssignment = assignments.find(a => a.className === selectedClass);
+        if (currentAssignment) {
+            setAllSubjectsList(currentAssignment.subjects);
+        } else {
+            setAllSubjectsList([]);
+        }
+    }, [selectedClass, assignments]);
+
+    // 3️⃣ Fetch latest academic year
     useEffect(() => {
         const q = query(collection(db, "PupilsReg"), orderBy("academicYear", "desc"), limit(1));
         const unsub = onSnapshot(q, (snapshot) => {
@@ -141,10 +132,11 @@ const GradesAuditPage = () => {
         return () => unsub();
     }, []);
 
-    // --- 4️⃣ Fetch pupils for selected class ---
+    // 4️⃣ Fetch pupils list for dropdown filtering
     useEffect(() => {
         if (!selectedClass || !academicYear || !schoolId || schoolId === "N/A") {
             setPupils([]);
+            setSelectedPupilId("");
             return;
         }
 
@@ -161,44 +153,44 @@ const GradesAuditPage = () => {
                 .sort((a, b) => (a.studentName || "").localeCompare(b.studentName || ""));
 
             setPupils(data);
-
-            gradesStore.getItem("pendingUpdates").then((pending) => {
-                if (pending) setUpdatedGrades(pending);
-            });
+            if (data.length > 0 && !selectedPupilId) {
+                setSelectedPupilId(data[0].studentID);
+            }
         });
 
         return () => unsub();
     }, [selectedClass, academicYear, schoolId]);
 
-    // --- 5️⃣ Fetch grades with caching ---
-    const fetchGrades = useCallback(async () => {
-        if (!selectedClass || !selectedSubject || !selectedTest || !academicYear || !schoolId) return;
+    // 5️⃣ Fetch all grades for the selected student across all subjects
+    const fetchPupilGradesSheet = useCallback(async () => {
+        if (!selectedClass || !selectedPupilId || !selectedTest || !academicYear || !schoolId) {
+            setCurrentGrades({});
+            return;
+        }
 
-        const cacheKey = `${schoolId}_${selectedClass}_${selectedSubject}_${selectedTest}_${academicYear}`;
+        const cacheKey = `sheet_${schoolId}_${selectedClass}_${selectedPupilId}_${selectedTest}_${academicYear}`;
 
         try {
-            const cachedGrades = await gradesStore.getItem(cacheKey);
-            if (cachedGrades) setCurrentGrades(cachedGrades);
+            const cached = await gradesStore.getItem(cacheKey);
+            if (cached) setCurrentGrades(cached);
 
-            let gradeQuery = query(
+            const gradeQuery = query(
                 collection(pupilresult, "PupilGrades"),
-                where("className", "==", selectedClass),
-                where("subject", "==", selectedSubject),
-                where("test", "==", selectedTest),
-                where("academicYear", "==", academicYear),
                 where("schoolId", "==", schoolId),
+                where("className", "==", selectedClass),
+                where("pupilID", "==", selectedPupilId),
+                where("test", "==", selectedTest),
+                where("academicYear", "==", academicYear)
             );
-
-            if (selectedTeacherName) {
-                gradeQuery = query(gradeQuery, where("teacher", "==", selectedTeacherName));
-            }
 
             const snapshot = await getDocs(gradeQuery);
             const gradesMap = {};
+
             snapshot.docs.forEach(doc => {
                 const data = doc.data();
-                gradesMap[data.pupilID] = { 
-                    grade: data.grade, 
+                // Map by subject name since subjects are listed on the left column
+                gradesMap[data.subject] = {
+                    grade: data.grade,
                     teacher: data.teacher,
                     docId: doc.id
                 };
@@ -208,39 +200,80 @@ const GradesAuditPage = () => {
             setUpdatedGrades({});
             await gradesStore.setItem(cacheKey, gradesMap);
         } catch (err) {
-            console.error("❌ Error fetching grades", err);
+            console.error("❌ Error fetching terminal sheet grades", err);
         }
-    }, [selectedClass, selectedSubject, selectedTest, academicYear, schoolId, selectedTeacherName]);
+    }, [selectedClass, selectedPupilId, selectedTest, academicYear, schoolId]);
 
     useEffect(() => {
-        fetchGrades();
-    }, [fetchGrades]);
+        fetchPupilGradesSheet();
+    }, [fetchPupilGradesSheet]);
 
-    const handleGradeChange = (pupilID, value) => {
+    const handleGradeChange = (subject, value) => {
         const numValue = parseFloat(value);
         if (value !== "" && (isNaN(numValue) || numValue < 0)) return;
 
         setUpdatedGrades(prev => {
-            const newState = { ...prev, [pupilID]: value === "" ? null : numValue };
-            gradesStore.setItem("pendingUpdates", newState);
+            const newState = { ...prev, [subject]: value === "" ? null : numValue };
             return newState;
         });
     };
 
-    // --- Submit All Grades at Once ---
-    const handleSubmitAll = async () => {
-        const pendingIDs = Object.keys(updatedGrades);
-        if (pendingIDs.length === 0) return toast.info("No changes to submit");
-        
-        if (!window.confirm(`Are you sure you want to submit ${pendingIDs.length} changes at once?`)) return;
-
+    // Single Row Quick Save
+    const handleAdminAction = async (subject) => {
         setSubmitting(true);
-        const batch = writeBatch(pupilresult); 
+        const gradeData = currentGrades[subject];
+        const newGradeValue = updatedGrades[subject];
 
         try {
-            pendingIDs.forEach((pupilID) => {
-                const newValue = updatedGrades[pupilID];
-                const gradeData = currentGrades[pupilID];
+            if (gradeData && newGradeValue === null) {
+                if (!window.confirm(`Delete ${subject} grade?`)) { setSubmitting(false); return; }
+                await deleteDoc(doc(pupilresult, "PupilGrades", gradeData.docId));
+            } else if (typeof newGradeValue === 'number') {
+                if (gradeData) {
+                    await setDoc(doc(pupilresult, "PupilGrades", gradeData.docId), {
+                        grade: newGradeValue,
+                        lastModifiedByAdmin: serverTimestamp(),
+                    }, { merge: true });
+                } else {
+                    const docRef = doc(collection(pupilresult, "PupilGrades"));
+                    await setDoc(docRef, {
+                        pupilID: selectedPupilId,
+                        className: selectedClass,
+                        subject: subject,
+                        teacher: "Admin Sheet Override",
+                        grade: newGradeValue,
+                        test: selectedTest,
+                        academicYear,
+                        schoolId,
+                        timestamp: serverTimestamp(),
+                        lastModifiedByAdmin: serverTimestamp(),
+                    });
+                }
+            }
+            toast.success(`Updated ${subject} grade successfully.`);
+            await fetchPupilGradesSheet();
+        } catch (err) {
+            console.error(err);
+            toast.error("Error saving grade change");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    // Bulk Save all modified fields for the student
+    const handleSubmitAll = async () => {
+        const pendingSubjects = Object.keys(updatedGrades);
+        if (pendingSubjects.length === 0) return toast.info("No changes to submit");
+
+        if (!window.confirm(`Submit changes for ${pendingSubjects.length} subjects?`)) return;
+
+        setSubmitting(true);
+        const batch = writeBatch(pupilresult);
+
+        try {
+            pendingSubjects.forEach((subject) => {
+                const newValue = updatedGrades[subject];
+                const gradeData = currentGrades[subject];
 
                 if (gradeData && newValue === null) {
                     batch.delete(doc(pupilresult, "PupilGrades", gradeData.docId));
@@ -253,10 +286,10 @@ const GradesAuditPage = () => {
                     } else {
                         const newDocRef = doc(collection(pupilresult, "PupilGrades"));
                         batch.set(newDocRef, {
-                            pupilID,
+                            pupilID: selectedPupilId,
                             className: selectedClass,
-                            subject: selectedSubject,
-                            teacher: "Admin Bulk Override",
+                            subject,
+                            teacher: "Admin Bulk Sheet Override",
                             grade: newValue,
                             test: selectedTest,
                             academicYear,
@@ -269,209 +302,209 @@ const GradesAuditPage = () => {
             });
 
             await batch.commit();
-            
             setUpdatedGrades({});
-            await gradesStore.setItem("pendingUpdates", {});
-            toast.success("Successfully submitted all changes!");
-            fetchGrades(); 
+            toast.success("Successfully updated pupil grade sheet!");
+            fetchPupilGradesSheet();
         } catch (err) {
-            console.error("Bulk upload error:", err);
-            toast.error("Failed to submit all grades");
+            console.error("Bulk sheet override error:", err);
+            toast.error("Failed to commit updates");
         } finally {
             setSubmitting(false);
-        }
-    };
-
-    const handleAdminAction = async (pupilID) => {
-        setSubmitting(true);
-        const gradeData = currentGrades[pupilID];
-        const newGradeValue = updatedGrades[pupilID];
-
-        try {
-            if (gradeData && newGradeValue === null) {
-                if (!window.confirm(`Delete grade for ${pupilID}?`)) { setSubmitting(false); return; }
-                await deleteDoc(doc(pupilresult, "PupilGrades", gradeData.docId));
-            } else if (typeof newGradeValue === 'number') {
-                if (gradeData) {
-                    await setDoc(doc(pupilresult, "PupilGrades", gradeData.docId), {
-                        grade: newGradeValue,
-                        lastModifiedByAdmin: serverTimestamp(),
-                    }, { merge: true });
-                } else {
-                    const docRef = doc(collection(pupilresult, "PupilGrades"));
-                    await setDoc(docRef, {
-                        pupilID,
-                        className: selectedClass,
-                        subject: selectedSubject,
-                        teacher: "Admin Override",
-                        grade: newGradeValue,
-                        test: selectedTest,
-                        academicYear,
-                        schoolId,
-                        timestamp: serverTimestamp(),
-                        lastModifiedByAdmin: serverTimestamp(),
-                    });
-                }
-            }
-            await fetchGrades();
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setSubmitting(false);
-            setUpdatedGrades(prev => {
-                const newState = { ...prev };
-                delete newState[pupilID];
-                gradesStore.setItem("pendingUpdates", newState);
-                return newState;
-            });
         }
     };
 
     const handleDownloadPDF = () => {
+        const activePupil = pupils.find(p => p.studentID === selectedPupilId);
         const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "A4" });
+
+        doc.setFontSize(16);
+        doc.text(`${schoolName} - Student Terminal Grade Sheet`, 40, 40);
+        doc.setFontSize(11);
+        doc.text(`Student Name: ${activePupil?.studentName || "N/A"} (${selectedPupilId})`, 40, 60);
+        doc.text(`Class: ${selectedClass}  |  Assessment: ${selectedTest}  |  Year: ${academicYear}`, 40, 75);
+
         autoTable(doc, {
-            startY: 50,
-            head: [['#', 'Student Name', 'ID', 'Grade', 'Submitted By']],
-            body: pupils.map((p, i) => [
-                i + 1, 
-                p.studentName, 
-                p.studentID, 
-                updatedGrades.hasOwnProperty(p.studentID) ? (updatedGrades[p.studentID] ?? "DELETED") : (currentGrades[p.studentID]?.grade ?? "N/A"),
-                currentGrades[p.studentID]?.teacher || "N/A"
+            startY: 95,
+            head: [['Subject Name', 'Obtained Score', 'Evaluated By']],
+            body: allSubjectsList.map((subject) => [
+                subject,
+                updatedGrades.hasOwnProperty(subject) ? (updatedGrades[subject] ?? "REMOVED") : (currentGrades[subject]?.grade ?? "N/A"),
+                currentGrades[subject]?.teacher || "Not Recorded"
             ]),
-            theme: "striped"
+            theme: "grid"
         });
-        doc.save(`Audit_${selectedClass}_${selectedSubject}.pdf`);
+        doc.save(`GradeSheet_${selectedPupilId}_${selectedTest}.pdf`);
     };
+
+    const activeStudentName = pupils.find(p => p.studentID === selectedPupilId)?.studentName || "Select Student";
 
     return (
         <div className="max-w-7xl mx-auto p-6 bg-white rounded-3xl shadow-2xl relative border border-gray-100">
+            {/* Header section */}
             <div className="flex justify-between items-center mb-8 border-b pb-6">
                 <div>
-                    <h2 className="text-3xl font-black text-indigo-900 uppercase">Grade Audit</h2>
-                    <p className="text-gray-500 font-medium">Class: <span className="text-indigo-600 font-bold">{selectedClass}</span> | Subject: <span className="text-emerald-600 font-bold">{selectedSubject}</span></p>
+                    <h2 className="text-3xl font-black text-indigo-900 uppercase tracking-tight">Student Grade Sheet</h2>
+                    <p className="text-gray-500 font-medium mt-1">
+                        Viewing Record for: <span className="text-indigo-600 font-bold">{activeStudentName}</span>
+                    </p>
                 </div>
                 <div className="flex gap-3">
-                   {isFormTeacher && (
-                       <span className="bg-amber-100 text-amber-700 px-4 py-2 rounded-full text-xs font-bold border border-amber-200">
-                           🔒 CLASS LOCKED
-                       </span>
-                   )}
+                    {isFormTeacher && (
+                        <span className="bg-amber-100 text-amber-700 px-4 py-2 rounded-full text-xs font-bold border border-amber-200 flex items-center">
+                            🔒 CLASS LOCKED ({assignedClass})
+                        </span>
+                    )}
 
-                   {Object.keys(updatedGrades).length > 0 && (
+                    {Object.keys(updatedGrades).length > 0 && (
                         <button
                             onClick={handleSubmitAll}
                             disabled={submitting}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all flex items-center gap-2"
                         >
-                            {submitting ? "Processing..." : `🚀 Submit All (${Object.keys(updatedGrades).length})`}
+                            {submitting ? "Saving..." : `🚀 Save Entire Sheet (${Object.keys(updatedGrades).length})`}
                         </button>
                     )}
-                   <button onClick={handleDownloadPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all">
-                       Export PDF
-                   </button>
+                    <button onClick={handleDownloadPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all">
+                        Export PDF
+                    </button>
                 </div>
             </div>
 
-            {/* Filter Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 p-6 bg-gray-50 rounded-2xl border border-gray-200">
+            {/* Core Configuration Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 p-6 bg-gray-50 rounded-2xl border border-gray-200">
+                {/* 1. Class Selection Field */}
                 <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Submitted By (Teacher)</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Target Class</label>
                     <select
-                        value={selectedTeacherName}
-                        onChange={(e) => setSelectedTeacherName(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-2"
+                        value={selectedClass}
+                        onChange={(e) => {
+                            setSelectedClass(e.target.value);
+                            setSelectedPupilId(""); // Reset active target
+                        }}
+                        disabled={isFormTeacher}
+                        className="w-full border-2 border-gray-200 bg-white font-semibold rounded-xl px-4 py-2 text-gray-700 focus:outline-none focus:border-indigo-500 disabled:opacity-60"
                     >
-                        <option value="">-- ALL TEACHERS --</option>
-                        {allTeachers.map((name, i) => <option key={i} value={name}>{name}</option>)}
+                        <option value="">-- SELECT CLASS --</option>
+                        {assignments.map((a) => <option key={a.className} value={a.className}>{a.className}</option>)}
                     </select>
                 </div>
+
+                {/* 2. Pupil Name Dropdown Filter */}
                 <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Assessment Period</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Pupil Name</label>
+                    <select
+                        value={selectedPupilId}
+                        onChange={(e) => setSelectedPupilId(e.target.value)}
+                        disabled={pupils.length === 0}
+                        className="w-full border-2 border-gray-200 bg-white font-semibold rounded-xl px-4 py-2 text-gray-700 focus:outline-none focus:border-indigo-500"
+                    >
+                        <option value="">-- CHOOSE PUPIL --</option>
+                        {pupils.map((p) => (
+                            <option key={p.studentID} value={p.studentID}>
+                                {p.studentName} ({p.studentID})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* 3. Assessment Term Filter */}
+                <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Assessment Term / Period</label>
                     <select
                         value={selectedTest}
                         onChange={(e) => setSelectedTest(e.target.value)}
-                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-2"
+                        className="w-full border-2 border-gray-200 bg-white font-semibold rounded-xl px-4 py-2 text-gray-700 focus:outline-none focus:border-indigo-500"
                     >
                         {tests.map((test, i) => <option key={i} value={test}>{test}</option>)}
                     </select>
                 </div>
             </div>
 
-            {/* Class & Subject Tabs (Locked if Form Teacher) */}
-            <div className="mb-8">
-                <p className="text-xs font-bold text-indigo-400 mb-3 uppercase tracking-widest">Select Class</p>
-                <div className="flex gap-2 flex-wrap">
-                    {assignments.map((a) => (
-                        <button key={a.className}
-                            disabled={isFormTeacher}
-                            className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${selectedClass === a.className ? "bg-indigo-600 text-white shadow-lg" : "bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-50"}`}
-                            onClick={() => { setSelectedClass(a.className); setSelectedSubject(a.subjects[0]); }}>
-                            {a.className}
-                        </button>
-                    ))}
-                </div>
-
-                <p className="text-xs font-bold text-emerald-400 mb-3 mt-6 uppercase tracking-widest">Select Subject</p>
-                <div className="flex gap-2 flex-wrap">
-                    {assignments.find((a) => a.className === selectedClass)?.subjects.map((subject, i) => (
-                        <button key={i} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${selectedSubject === subject ? "bg-emerald-600 text-white shadow-lg" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`} onClick={() => setSelectedSubject(subject)}>
-                            {subject}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Audit Table */}
+            {/* Terminal Grade Matrix Layout */}
             <div className="overflow-x-auto shadow-sm rounded-2xl border border-gray-100">
                 <table className="min-w-full text-sm text-left">
                     <thead className="bg-indigo-50 text-indigo-900 uppercase text-[11px] font-black">
                         <tr>
-                            <th className="px-6 py-4">Student Details</th>
-                            <th className="px-6 py-4 text-center">Current Grade</th>
-                            <th className="px-6 py-4">Submission Info</th>
-                            <th className="px-6 py-4 text-center">Admin Override</th>
+                            <th className="px-6 py-4 w-1/3">Subject List</th>
+                            <th className="px-6 py-4 text-center w-32">Obtained Grade</th>
+                            {/* <th className="px-6 py-4">Assigned Evaluator</th> */}
+                            <th className="px-6 py-4 text-center w-40">Action</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                        {pupils.map((pupil, index) => {
-                            const gradeInfo = currentGrades[pupil.studentID];
-                            const displayGrade = updatedGrades.hasOwnProperty(pupil.studentID) ? (updatedGrades[pupil.studentID] ?? "") : (gradeInfo?.grade ?? "");
-                            const isModified = updatedGrades.hasOwnProperty(pupil.studentID);
+                        {allSubjectsList.length === 0 ? (
+                            <tr>
+                                <td colSpan="4" className="text-center py-8 font-medium text-gray-400">
+                                    No mapped subject tracks found for this configuration.
+                                </td>
+                            </tr>
+                        ) : (
+                            allSubjectsList.map((subject) => {
+                                const gradeInfo = currentGrades[subject];
+                                const displayGrade = updatedGrades.hasOwnProperty(subject) ? (updatedGrades[subject] ?? "") : (gradeInfo?.grade ?? "");
+                                const isModified = updatedGrades.hasOwnProperty(subject);
 
-                            return (
-                                <tr key={pupil.id} className="hover:bg-indigo-50/30 transition-all">
-                                    <td className="px-6 py-4">
-                                        <div className="font-bold text-gray-900">{pupil.studentName}</div>
-                                        <div className="text-[10px] text-gray-400 uppercase">{pupil.studentID}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <input
-                                            type="number"
-                                            value={displayGrade} 
-                                            onChange={(e) => handleGradeChange(pupil.studentID, e.target.value)}
-                                            className={`w-16 border-2 px-2 py-1 rounded-lg text-center font-bold focus:ring-2 focus:ring-indigo-400 ${isModified ? "border-amber-400 bg-amber-50" : "border-gray-100"}`}
-                                        />
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="text-xs text-gray-500 italic">{gradeInfo?.teacher || "Not Submitted"}</span>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        {isModified ? (
-                                            <button
-                                                onClick={() => handleAdminAction(pupil.studentID)}
-                                                className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1 rounded-lg text-xs font-bold uppercase shadow-md transition-all"
-                                                disabled={submitting}
-                                            >
-                                                {submitting ? "..." : "Save Change"}
-                                            </button>
-                                        ) : (
-                                            <span className="text-[10px] text-gray-300 font-bold uppercase tracking-tighter">Verified</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
+                                return (
+                                    <tr key={subject} className="hover:bg-indigo-50/30 transition-all">
+                                        {/* Dynamic Left Column - Subjects listed vertically */}
+                                        <td className="px-6 py-4 font-bold text-gray-800 tracking-tight">
+                                            {subject}
+                                        </td>
+
+                                        {/* Score Input Entry */}
+                                        {/* <td className="px-6 py-4 text-center">
+                                            <input
+                                                type="number"
+                                                value={displayGrade} 
+                                                onChange={(e) => handleGradeChange(subject, e.target.value)}
+                                                className={`w-20 border-2 px-2 py-1.5 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-indigo-400 ${isModified ? "border-amber-400 bg-amber-50 text-amber-900" : "border-gray-200 text-indigo-950"}`}
+                                            />
+                                        </td> */}
+
+                                        {/* Score Input Entry */}
+                                        <td className="px-6 py-4 text-center">
+                                            <input
+                                                type="number"
+                                                value={displayGrade}
+                                                onChange={(e) => handleGradeChange(subject, e.target.value)}
+                                                // 🔥 ADDED: Intercept Enter keypress for instant single row save
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && isModified && !submitting) {
+                                                        e.preventDefault();
+                                                        handleAdminAction(subject);
+                                                    }
+                                                }}
+                                                className={`w-20 border-2 px-2 py-1.5 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-indigo-400 ${isModified ? "border-amber-400 bg-amber-50 text-amber-900" : "border-gray-200 text-indigo-950"}`}
+                                            />
+                                        </td>
+
+                                        {/* Teacher Info */}
+                                        {/* <td className="px-6 py-4">
+                                            <span className="text-xs font-medium text-gray-500">
+                                                {gradeInfo?.teacher || <span className="text-gray-300 italic">Not set</span>}
+                                            </span>
+                                        </td> */}
+
+                                        {/* Operations Handling */}
+                                        <td className="px-6 py-4 text-center">
+                                            {isModified ? (
+                                                <button
+                                                    onClick={() => handleAdminAction(subject)}
+                                                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase shadow-sm transition-all"
+                                                    disabled={submitting}
+                                                >
+                                                    {submitting ? "..." : "Apply"}
+                                                </button>
+                                            ) : (
+                                                <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full font-bold uppercase tracking-wide">
+                                                    Synced
+                                                </span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
                     </tbody>
                 </table>
             </div>
@@ -479,4 +512,4 @@ const GradesAuditPage = () => {
     );
 };
 
-export default GradesAuditPage;
+export default GradeSheetPage;

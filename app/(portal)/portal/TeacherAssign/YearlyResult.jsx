@@ -108,64 +108,69 @@ const YearlyResult = () => {
     return () => { unsubPupils(); unsubGrades(); };
   }, [academicYear, selectedClass, schoolId]);
 
-  // --- 4. YEARLY LOGIC ENGINE ---
-  const yearlyData = useMemo(() => {
-    if (allYearGrades.length === 0 || pupils.length === 0) return { subjects: [], studentMap: {}, summaries: {} };
+// --- 4. YEARLY LOGIC ENGINE ---
+const yearlyData = useMemo(() => {
+  if (allYearGrades.length === 0 || pupils.length === 0) return { subjects: [], studentMap: {}, summaries: {} };
 
-    const subjects = [...new Set(allYearGrades.map(d => d.subject))].sort();
-    const studentMap = {};
-    const summaries = {};
+  const subjects = [...new Set(allYearGrades.map(d => d.subject))].sort();
+  const studentMap = {};
+  const summaries = {};
 
-    const calculateTermMean = (pId, sub, term) => {
-      const t1Key = `${term} T1`;
-      const t2Key = `${term} T2`;
-      const tests = allYearGrades.filter(g => g.pupilID === pId && g.subject === sub && (g.test === t1Key || g.test === t2Key));
-      if (tests.length === 0) return 0;
-      const t1 = Number(tests.find(t => t.test === t1Key)?.grade || 0);
-      const t2 = Number(tests.find(t => t.test === t2Key)?.grade || 0);
-      return Math.round((t1 + t2) / 2);
-    };
+  const calculateTermMean = (pId, sub, term) => {
+    const t1Key = `${term} T1`;
+    const t2Key = `${term} T2`;
+    const tests = allYearGrades.filter(g => g.pupilID === pId && g.subject === sub && (g.test === t1Key || g.test === t2Key));
+    if (tests.length === 0) return 0;
+    const t1 = Number(tests.find(t => t.test === t1Key)?.grade || 0);
+    const t2 = Number(tests.find(t => t.test === t2Key)?.grade || 0);
+    // 🔥 UPDATED: Summing test grades directly instead of dividing by 2
+    return t1 + t2;
+  };
 
-    const subjectStandings = {};
+  const subjectStandings = {};
+  subjects.forEach(sub => {
+    const scores = pupils.map(p => {
+      const m1 = calculateTermMean(p.studentID, sub, "Term 1");
+      const m2 = calculateTermMean(p.studentID, sub, "Term 2");
+      const m3 = calculateTermMean(p.studentID, sub, "Term 3");
+      // 🔥 UPDATED: Straight summation of all 3 terms instead of dividing by 3
+      return { id: p.studentID, avg: m1 + m2 + m3, m1, m2, m3 };
+    });
+    scores.sort((a, b) => b.avg - a.avg);
+    scores.forEach((s, i) => {
+      if (i > 0 && s.avg === scores[i - 1].avg) s.rank = scores[i - 1].rank;
+      else s.rank = i + 1;
+    });
+    subjectStandings[sub] = scores;
+  });
+
+  const overallScores = pupils.map(pupil => {
+    const pId = pupil.studentID;
+    const results = {};
+    let totalYearlySum = 0;
+
     subjects.forEach(sub => {
-      const scores = pupils.map(p => {
-        const m1 = calculateTermMean(p.studentID, sub, "Term 1");
-        const m2 = calculateTermMean(p.studentID, sub, "Term 2");
-        const m3 = calculateTermMean(p.studentID, sub, "Term 3");
-        return { id: p.studentID, avg: Math.round((m1 + m2 + m3) / 3), m1, m2, m3 };
-      });
-      scores.sort((a, b) => b.avg - a.avg);
-      scores.forEach((s, i) => {
-        if (i > 0 && s.avg === scores[i - 1].avg) s.rank = scores[i - 1].rank;
-        else s.rank = i + 1;
-      });
-      subjectStandings[sub] = scores;
+      const data = subjectStandings[sub].find(s => s.id === pId);
+      results[sub] = { m1: data.m1, m2: data.m2, m3: data.m3, yearlyMean: data.avg, subRank: data.rank };
+      totalYearlySum += data.avg;
     });
 
-    const overallScores = pupils.map(pupil => {
-      const pId = pupil.studentID;
-      const results = {};
-      let totalYearlySum = 0;
+    studentMap[pId] = results;
+    // Note: If you are summing 6 tests over the year (2 tests per term * 3 terms), 
+    // the total maximum points per subject becomes 600 instead of 100.
+    const maxPossibleMarks = subjects.length * 600; 
+    const percentage = maxPossibleMarks > 0 ? ((totalYearlySum / maxPossibleMarks) * 100).toFixed(1) : 0;
+    return { id: pId, total: totalYearlySum, percentage };
+  });
 
-      subjects.forEach(sub => {
-        const data = subjectStandings[sub].find(s => s.id === pId);
-        results[sub] = { m1: data.m1, m2: data.m2, m3: data.m3, yearlyMean: data.avg, subRank: data.rank };
-        totalYearlySum += data.avg;
-      });
+  overallScores.sort((a, b) => b.total - a.total);
+  overallScores.forEach((s, i) => {
+    const rank = i > 0 && s.total === overallScores[i - 1].total ? summaries[overallScores[i - 1].id].rank : i + 1;
+    summaries[s.id] = { total: s.total, percentage: s.percentage, rank };
+  });
 
-      studentMap[pId] = results;
-      const percentage = subjects.length > 0 ? ((totalYearlySum / (subjects.length * 100)) * 100).toFixed(1) : 0;
-      return { id: pId, total: totalYearlySum, percentage };
-    });
-
-    overallScores.sort((a, b) => b.total - a.total);
-    overallScores.forEach((s, i) => {
-      const rank = i > 0 && s.total === overallScores[i - 1].total ? summaries[overallScores[i - 1].id].rank : i + 1;
-      summaries[s.id] = { total: s.total, percentage: s.percentage, rank };
-    });
-
-    return { subjects, studentMap, summaries };
-  }, [allYearGrades, pupils]);
+  return { subjects, studentMap, summaries };
+}, [allYearGrades, pupils]);
 
   // --- 5. EXPORT HANDLERS ---
   const handleExportPDF = () => {

@@ -19,7 +19,7 @@ import {
 } from "firebase/firestore";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
-import jsPDF from "jspdf"; 
+import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import localforage from "localforage";
 import { toast } from "react-toastify";
@@ -29,10 +29,72 @@ const gradesStore = localforage.createInstance({
     storeName: "pupilGradesSheet",
 });
 
+// --- FIXED SUBJECT SCHEMAS BY CLASS LEVEL ---
+const LOWER_PRIMARY_SUBJECTS = [
+    "E. S. P. S",
+    "Mathematics",
+    "Agricultural Science",
+    "Physical Health Education",
+    "Religious Moral Education",
+    "Literature",
+    "Home Economics",
+    "Reading & Comprehension",
+    "Spelling & Dictation",
+    "Creative Practical Arts",
+    "Composition",
+    "Hand writing",
+    "Computer Studies",
+    "Civic Education",
+    "Word Building",
+    "Rhymes",
+    "Environmental studies",
+    "French",
+    "Vabal Aptitude",
+    "Quantitative Aptitude"
+];
+
+const UPPER_PRIMARY_SUBJECTS = [
+    "Language Arts",
+    "Mathematics",
+    "Science",
+    "Social Studies",
+    "Agricultural Science",
+    "Physical Health Education",
+    "Religious Moral Education",
+    "Literature",
+    "Home Economics",
+    "Reading & Comprehension",
+    "Spelling & Dictation",
+    "Creative Practical Arts",
+    "Composition",
+    "Hand writing",
+    "Computer Studies",
+    "Civic Education",
+    "French",
+    "Vabal Aptitude",
+    "Quantitative Aptitude"
+];
+
+// Helper to determine subject sequence based on standard class groupings
+const getSubjectsForClass = (className) => {
+    if (!className) return [];
+    
+    // Normalize string and check structural prefixes to handle variations like "Class 5A", "Class 5B" safely
+    const normalized = className.trim();
+
+    const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
+    const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
+
+    if (isLowerPrimary) return LOWER_PRIMARY_SUBJECTS;
+    if (isUpperPrimary) return UPPER_PRIMARY_SUBJECTS;
+    
+    return [];
+};
+
 const GradeSheetPage = () => {
     const searchParams = useSearchParams();
     const { user } = useAuth();
-    
+
     const schoolId = searchParams.get("schoolId") || user?.schoolId || "N/A";
     const schoolName = searchParams.get("schoolName") || "School Admin";
 
@@ -41,16 +103,16 @@ const GradeSheetPage = () => {
     const [assignments, setAssignments] = useState([]);
     const [pupils, setPupils] = useState([]);
     const [allSubjectsList, setAllSubjectsList] = useState([]);
-    
+
     // Filters
     const [selectedClass, setSelectedClass] = useState("");
     const [selectedPupilId, setSelectedPupilId] = useState("");
     const [selectedTest, setSelectedTest] = useState("Term 1 T1");
     const [academicYear, setAcademicYear] = useState("");
-    
+
     // Grades State for the current targeted Pupil
-    const [currentGrades, setCurrentGrades] = useState({}); 
-    const [updatedGrades, setUpdatedGrades] = useState({}); 
+    const [currentGrades, setCurrentGrades] = useState({});
+    const [updatedGrades, setUpdatedGrades] = useState({});
     const [submitting, setSubmitting] = useState(false);
 
     const isFormTeacher = liveTeacherInfo?.isFormTeacher ?? user?.data?.isFormTeacher;
@@ -76,14 +138,14 @@ const GradeSheetPage = () => {
         return () => unsubscribe();
     }, [user, schoolId]);
 
-    // 2️⃣ Fetch Assignments, Map Available Subjects, and Handle Lock Logic
+    // 2️⃣ Fetch Assignments and Handle Lock Logic
     useEffect(() => {
         if (!schoolId || schoolId === "N/A") return;
         const qAssignments = query(collection(db, "TeacherAssignments"), where("schoolId", "==", schoolId));
 
         const unsub = onSnapshot(qAssignments, (snapshot) => {
             const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            
+
             let uniqueAssignments = data.reduce((acc, assignment) => {
                 const existing = acc.find(a => a.className === assignment.className);
                 if (existing) {
@@ -96,7 +158,6 @@ const GradeSheetPage = () => {
                 return acc;
             }, []);
 
-            uniqueAssignments.forEach(a => a.subjects.sort((a, b) => a.localeCompare(b)));
             uniqueAssignments.sort((a, b) => a.className.localeCompare(b.className));
 
             if (isFormTeacher && assignedClass) {
@@ -105,23 +166,23 @@ const GradeSheetPage = () => {
             } else if (uniqueAssignments.length > 0 && !selectedClass) {
                 setSelectedClass(uniqueAssignments[0].className);
             }
-            
+
             setAssignments(uniqueAssignments);
         });
         return () => unsub();
-    }, [schoolId, isFormTeacher, assignedClass]);
+    }, [schoolId, isFormTeacher, assignedClass, selectedClass]);
 
-    // Extract subjects dynamically whenever the class changes
+    // 3️⃣ Route mapped structural curriculum exactly as hardcoded (Cleaned up duplication)
     useEffect(() => {
-        const currentAssignment = assignments.find(a => a.className === selectedClass);
-        if (currentAssignment) {
-            setAllSubjectsList(currentAssignment.subjects);
+        if (selectedClass) {
+            const staticSequence = getSubjectsForClass(selectedClass);
+            setAllSubjectsList(staticSequence);
         } else {
             setAllSubjectsList([]);
         }
-    }, [selectedClass, assignments]);
+    }, [selectedClass]);
 
-    // 3️⃣ Fetch latest academic year
+    // 4️⃣ Fetch latest academic year
     useEffect(() => {
         const q = query(collection(db, "PupilsReg"), orderBy("academicYear", "desc"), limit(1));
         const unsub = onSnapshot(q, (snapshot) => {
@@ -132,7 +193,7 @@ const GradeSheetPage = () => {
         return () => unsub();
     }, []);
 
-    // 4️⃣ Fetch pupils list for dropdown filtering
+    // 5️⃣ Fetch pupils list for dropdown filtering
     useEffect(() => {
         if (!selectedClass || !academicYear || !schoolId || schoolId === "N/A") {
             setPupils([]);
@@ -161,7 +222,7 @@ const GradeSheetPage = () => {
         return () => unsub();
     }, [selectedClass, academicYear, schoolId]);
 
-    // 5️⃣ Fetch all grades for the selected student across all subjects
+    // 6️⃣ Fetch all grades for the selected student across all subjects
     const fetchPupilGradesSheet = useCallback(async () => {
         if (!selectedClass || !selectedPupilId || !selectedTest || !academicYear || !schoolId) {
             setCurrentGrades({});
@@ -185,12 +246,11 @@ const GradeSheetPage = () => {
 
             const snapshot = await getDocs(gradeQuery);
             const gradesMap = {};
-            
+
             snapshot.docs.forEach(doc => {
                 const data = doc.data();
-                // Map by subject name since subjects are listed on the left column
-                gradesMap[data.subject] = { 
-                    grade: data.grade, 
+                gradesMap[data.subject] = {
+                    grade: data.grade,
                     teacher: data.teacher,
                     docId: doc.id
                 };
@@ -264,11 +324,11 @@ const GradeSheetPage = () => {
     const handleSubmitAll = async () => {
         const pendingSubjects = Object.keys(updatedGrades);
         if (pendingSubjects.length === 0) return toast.info("No changes to submit");
-        
+
         if (!window.confirm(`Submit changes for ${pendingSubjects.length} subjects?`)) return;
 
         setSubmitting(true);
-        const batch = writeBatch(pupilresult); 
+        const batch = writeBatch(pupilresult);
 
         try {
             pendingSubjects.forEach((subject) => {
@@ -304,7 +364,7 @@ const GradeSheetPage = () => {
             await batch.commit();
             setUpdatedGrades({});
             toast.success("Successfully updated pupil grade sheet!");
-            fetchPupilGradesSheet(); 
+            fetchPupilGradesSheet();
         } catch (err) {
             console.error("Bulk sheet override error:", err);
             toast.error("Failed to commit updates");
@@ -316,7 +376,7 @@ const GradeSheetPage = () => {
     const handleDownloadPDF = () => {
         const activePupil = pupils.find(p => p.studentID === selectedPupilId);
         const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "A4" });
-        
+
         doc.setFontSize(16);
         doc.text(`${schoolName} - Student Terminal Grade Sheet`, 40, 40);
         doc.setFontSize(11);
@@ -327,7 +387,7 @@ const GradeSheetPage = () => {
             startY: 95,
             head: [['Subject Name', 'Obtained Score', 'Evaluated By']],
             body: allSubjectsList.map((subject) => [
-                subject, 
+                subject,
                 updatedGrades.hasOwnProperty(subject) ? (updatedGrades[subject] ?? "REMOVED") : (currentGrades[subject]?.grade ?? "N/A"),
                 currentGrades[subject]?.teacher || "Not Recorded"
             ]),
@@ -337,7 +397,22 @@ const GradeSheetPage = () => {
     };
 
     const activeStudentName = pupils.find(p => p.studentID === selectedPupilId)?.studentName || "Select Student";
+// Helper to determine subject sequence based on standard class groupings
+const getSubjectsForClass = (className) => {
+    if (!className) return [];
+    
+    const normalized = className.trim();
 
+    // Use regex to catch spelling variations (e.g., "Class 1", "Class 1A", "CLASS 2B")
+    const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
+    const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
+
+    // Returning a fresh array copy [...] prevents any internal or external mutation/sorting
+    if (isLowerPrimary) return [...LOWER_PRIMARY_SUBJECTS];
+    if (isUpperPrimary) return [...UPPER_PRIMARY_SUBJECTS];
+    
+    return [];
+};
     return (
         <div className="max-w-7xl mx-auto p-6 bg-white rounded-3xl shadow-2xl relative border border-gray-100">
             {/* Header section */}
@@ -349,24 +424,24 @@ const GradeSheetPage = () => {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                   {isFormTeacher && (
-                       <span className="bg-amber-100 text-amber-700 px-4 py-2 rounded-full text-xs font-bold border border-amber-200 flex items-center">
-                           🔒 CLASS LOCKED ({assignedClass})
-                       </span>
-                   )}
+                    {isFormTeacher && (
+                        <span className="bg-amber-100 text-amber-700 px-4 py-2 rounded-full text-xs font-bold border border-amber-200 flex items-center">
+                            🔒 CLASS LOCKED ({assignedClass})
+                        </span>
+                    )}
 
-                   {Object.keys(updatedGrades).length > 0 && (
+                    {Object.keys(updatedGrades).length > 0 && (
                         <button
                             onClick={handleSubmitAll}
                             disabled={submitting}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all flex items-center gap-2"
                         >
-                            {submitting ? "Saving..." : `🚀 Save Entire Sheet (${Object.keys(updatedGrades).length})`}
+                            {submitting ? "..." : `🚀 Save Entire Sheet (${Object.keys(updatedGrades).length})`}
                         </button>
                     )}
-                   <button onClick={handleDownloadPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all">
-                       Export PDF
-                   </button>
+                    <button onClick={handleDownloadPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition-all">
+                        Export PDF
+                    </button>
                 </div>
             </div>
 
@@ -379,7 +454,7 @@ const GradeSheetPage = () => {
                         value={selectedClass}
                         onChange={(e) => {
                             setSelectedClass(e.target.value);
-                            setSelectedPupilId(""); // Reset active target
+                            setSelectedPupilId("");
                         }}
                         disabled={isFormTeacher}
                         className="w-full border-2 border-gray-200 bg-white font-semibold rounded-xl px-4 py-2 text-gray-700 focus:outline-none focus:border-indigo-500 disabled:opacity-60"
@@ -427,14 +502,13 @@ const GradeSheetPage = () => {
                         <tr>
                             <th className="px-6 py-4 w-1/3">Subject List</th>
                             <th className="px-6 py-4 text-center w-32">Obtained Grade</th>
-                            {/* <th className="px-6 py-4">Assigned Evaluator</th> */}
                             <th className="px-6 py-4 text-center w-40">Action</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                         {allSubjectsList.length === 0 ? (
                             <tr>
-                                <td colSpan="4" className="text-center py-8 font-medium text-gray-400">
+                                <td colSpan="3" className="text-center py-8 font-medium text-gray-400">
                                     No mapped subject tracks found for this configuration.
                                 </td>
                             </tr>
@@ -446,29 +520,25 @@ const GradeSheetPage = () => {
 
                                 return (
                                     <tr key={subject} className="hover:bg-indigo-50/30 transition-all">
-                                        {/* Dynamic Left Column - Subjects listed vertically */}
                                         <td className="px-6 py-4 font-bold text-gray-800 tracking-tight">
                                             {subject}
                                         </td>
-                                        
-                                        {/* Score Input Entry */}
+
                                         <td className="px-6 py-4 text-center">
                                             <input
                                                 type="number"
-                                                value={displayGrade} 
+                                                value={displayGrade}
                                                 onChange={(e) => handleGradeChange(subject, e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && isModified && !submitting) {
+                                                        e.preventDefault();
+                                                        handleAdminAction(subject);
+                                                    }
+                                                }}
                                                 className={`w-20 border-2 px-2 py-1.5 rounded-lg text-center font-black text-sm focus:ring-2 focus:ring-indigo-400 ${isModified ? "border-amber-400 bg-amber-50 text-amber-900" : "border-gray-200 text-indigo-950"}`}
                                             />
                                         </td>
-                                        
-                                        {/* Teacher Info */}
-                                        {/* <td className="px-6 py-4">
-                                            <span className="text-xs font-medium text-gray-500">
-                                                {gradeInfo?.teacher || <span className="text-gray-300 italic">Not set</span>}
-                                            </span>
-                                        </td> */}
-                                        
-                                        {/* Operations Handling */}
+
                                         <td className="px-6 py-4 text-center">
                                             {isModified ? (
                                                 <button
