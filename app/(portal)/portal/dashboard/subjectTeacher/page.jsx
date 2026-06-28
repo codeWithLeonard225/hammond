@@ -31,6 +31,9 @@ import TermResult from "../../TeacherAssign/TermResult";
 import YearlyResult from "../../TeacherAssign/YearlyResult";
 import GradesAuditPage from "../../TeacherAssign/GradesAuditPage";
 import ReportCard from "../../TeacherAssign/ReportCard";
+import GradeEntry from "../../TeacherAssign/GradeEntry";
+import SubjectGradeDeleteEntry from "../../TeacherAssign/SubjectGradeDeleteEntry";
+
 
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: <MdDashboard /> },
@@ -55,6 +58,8 @@ const NAV_ITEMS = [
     children: [
       { key: "SubmittedGrades", label: "Submitted grades" },
       { key: "GradeSheet", label: "Grade Sheet" },
+      { key: "GradeEntry", label: "Grade Manuel" },
+      { key: "SubjectGradeDeleteEntry", label: "Subject Delete" },
       { key: "GradesAuditPage", label: "GradesAuditPage" },
       { key: "ReportCard", label: "Report Cards" },
       { key: "TermResult", label: "Term Result" },
@@ -212,6 +217,8 @@ export default function SubjectTeacherDashboard() {
       case "Timetable": return <TeacherTimetableReport />;
       case "SubmittedGrades": return <SubmittedGrades />; // ⭐️ Integrated your new page
       case "GradeSheet": return <SubGradeMatrixPage />; // ⭐️ Integrated your new page
+      case "GradeEntry": return <GradeEntry />; // ⭐️ Integrated your new page
+      case "SubjectGradeDeleteEntry": return <SubjectGradeDeleteEntry />; // ⭐️ Integrated your new page
       case "TermResult": return <TermResult />; // ⭐️ Integrated your new page
       case "YearlyResult": return <YearlyResult />; // ⭐️ Integrated your new page
       case "GradesAuditPage": return <GradesAuditPage />; // ⭐️ Integrated your new page

@@ -9,6 +9,68 @@ import autoTable from "jspdf-autotable";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 
+// --- FIXED SUBJECT SCHEMAS BY CLASS LEVEL ---
+const LOWER_PRIMARY_SUBJECTS = [
+    "E. S. P. S",
+    "Mathematics",
+    "Agricultural Science",
+    "Physical Health Education",
+    "Religious Moral Education",
+    "Literature",
+    "Home Economics",
+    "Reading & Comprehension",
+    "Spelling & Dictation",
+    "Creative Practical Arts",
+    "Composition",
+    "Hand writing",
+    "Computer Studies",
+    "Civic Education",
+    "Word Building",
+    "Rhymes",
+    "Environmental studies",
+    "French",
+    "Vabal Aptitude",
+    "Quantitative Aptitude"
+];
+
+const UPPER_PRIMARY_SUBJECTS = [
+    "Language Arts",
+    "Mathematics",
+    "Science",
+    "Social Studies",
+    "Agricultural Science",
+    "Physical Health Education",
+    "Religious Moral Education",
+    "Literature",
+    "Home Economics",
+    "Reading & Comprehension",
+    "Spelling & Dictation",
+    "Creative Practical Arts",
+    "Composition",
+    "Hand writing",
+    "Computer Studies",
+    "Civic Education",
+    "French",
+    "Vabal Aptitude",
+    "Quantitative Aptitude"
+];
+
+// Helper to determine subject sequence based on standard class groupings
+const getSubjectsForClass = (className) => {
+    if (!className) return [];
+    
+    // Normalize string and check structural prefixes to handle variations like "Class 5A", "Class 5B" safely
+    const normalized = className.trim();
+
+    const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
+    const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
+
+    if (isLowerPrimary) return LOWER_PRIMARY_SUBJECTS;
+    if (isUpperPrimary) return UPPER_PRIMARY_SUBJECTS;
+    
+    return []; // Return empty if class layout format does not match schemas
+};
+
 const TermResult = () => {
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -129,80 +191,83 @@ const TermResult = () => {
   }, [academicYear, selectedClass, schoolId]);
 
   // --- 3. COMPUTATION (BroadSheet Engine) ---
-const broadSheet = useMemo(() => {
-  if (classGradesData.length === 0 || pupils.length === 0)
-    return { subjects: [], studentMap: {}, summaries: {} };
+  const broadSheet = useMemo(() => {
+    if (pupils.length === 0)
+      return { subjects: [], studentMap: {}, summaries: {} };
 
-  const uniqueSubjects = [...new Set(classGradesData.map((d) => d.subject))].sort();
+    // Use the mapped schema instead of tracking database document entries directly
+    const uniqueSubjects = getSubjectsForClass(selectedClass);
 
-  const classInfo = classesCache.find(
-    (c) => c.schoolId === schoolId && c.className === selectedClass
-  );
-  const totalSubjectPercentage = classInfo?.subjectPercentage || uniqueSubjects.length * 100;
+    const classInfo = classesCache.find(
+      (c) => c.schoolId === schoolId && c.className === selectedClass
+    );
+    const totalSubjectPercentage = classInfo?.subjectPercentage || uniqueSubjects.length * 100;
 
-  const studentMap = {};
-  const summaries = {};
-  const subjectRanks = {};
+    const studentMap = {};
+    const summaries = {};
+    const subjectRanks = {};
 
-  uniqueSubjects.forEach((subject) => {
-    const scores = pupils.map((p) => {
-      const g = classGradesData.filter((x) => x.pupilID === p.studentID && x.subject === subject);
-      const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
-      const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
-      // 🔥 UPDATED: Summed test scores directly instead of dividing by 2
-      return { id: p.studentID, mean: t1 + t2 };
+    uniqueSubjects.forEach((subject) => {
+      const scores = pupils.map((p) => {
+        // Find grades while matching names loosely to minimize minor casing variations
+        const g = classGradesData.filter(
+          (x) => x.pupilID === p.studentID && x.subject?.trim().toLowerCase() === subject.toLowerCase()
+        );
+        const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
+        const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
+        return { id: p.studentID, mean: t1 + t2 };
+      });
+      scores.sort((a, b) => b.mean - a.mean);
+      scores.forEach((s, i) => {
+        s.rank = i > 0 && s.mean === scores[i - 1].mean ? scores[i - 1].rank : i + 1;
+      });
+      subjectRanks[subject] = scores;
     });
-    scores.sort((a, b) => b.mean - a.mean);
-    scores.forEach((s, i) => {
-      s.rank = i > 0 && s.mean === scores[i - 1].mean ? scores[i - 1].rank : i + 1;
+
+    const overallScores = pupils.map((p) => {
+      const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
+      const total = uniqueSubjects.reduce((acc, sub) => {
+        const g = pData.filter((x) => x.subject?.trim().toLowerCase() === sub.toLowerCase());
+        const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
+        const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
+        return acc + (t1 + t2);
+      }, 0);
+      return { id: p.studentID, total };
     });
-    subjectRanks[subject] = scores;
-  });
 
-  const overallScores = pupils.map((p) => {
-    const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
-    const total = uniqueSubjects.reduce((acc, sub) => {
-      const g = pData.filter((x) => x.subject === sub);
-      const t1 = Number(g.find((x) => x.test === tests[0])?.grade || 0);
-      const t2 = Number(g.find((x) => x.test === tests[1])?.grade || 0);
-      // 🔥 UPDATED: Summed test scores directly instead of dividing by 2
-      return acc + (t1 + t2);
-    }, 0);
-    return { id: p.studentID, total };
-  });
+    overallScores.sort((a, b) => b.total - a.total);
+    overallScores.forEach((s, i) => {
+      s.pos = i > 0 && s.total === overallScores[i - 1].total ? overallScores[i - 1].pos : i + 1;
+    });
 
-  overallScores.sort((a, b) => b.total - a.total);
-  overallScores.forEach((s, i) => {
-    s.pos = i > 0 && s.total === overallScores[i - 1].total ? overallScores[i - 1].pos : i + 1;
-  });
+    pupils.forEach((pupil) => {
+      const results = {};
+      uniqueSubjects.forEach((sub) => {
+        const g = classGradesData.filter(
+          (x) => x.pupilID === pupil.studentID && x.subject?.trim().toLowerCase() === sub.toLowerCase()
+        );
+        const t1 = g.find((x) => x.test === tests[0])?.grade || 0;
+        const t2 = g.find((x) => x.test === tests[1])?.grade || 0;
+        results[sub] = {
+          t1,
+          t2,
+          mean: Math.round(Number(t1) + Number(t2)),
+          rank: subjectRanks[sub].find((s) => s.id === pupil.studentID)?.rank || "—",
+        };
+      });
+      studentMap[pupil.studentID] = results;
 
-  pupils.forEach((pupil) => {
-    const results = {};
-    uniqueSubjects.forEach((sub) => {
-      const g = classGradesData.filter((x) => x.pupilID === pupil.studentID && x.subject === sub);
-      const t1 = g.find((x) => x.test === tests[0])?.grade || 0;
-      const t2 = g.find((x) => x.test === tests[1])?.grade || 0;
-      results[sub] = {
-        t1,
-        t2,
-        // 🔥 UPDATED: Total direct sum value mapped for UI and export row rendering
-        mean: Math.round(Number(t1) + Number(t2)),
-        rank: subjectRanks[sub].find((s) => s.id === pupil.studentID)?.rank || "—",
+      const ov = overallScores.find((o) => o.id === pupil.studentID);
+
+      summaries[pupil.studentID] = {
+        total: Math.round(ov.total),
+        perc: totalSubjectPercentage > 0 ? ((ov.total / totalSubjectPercentage) * 100).toFixed(1) : 0,
+        rank: ov.pos,
       };
     });
-    studentMap[pupil.studentID] = results;
 
-    const ov = overallScores.find((o) => o.id === pupil.studentID);
-
-    summaries[pupil.studentID] = {
-      total: Math.round(ov.total),
-      perc: totalSubjectPercentage > 0 ? ((ov.total / totalSubjectPercentage) * 100).toFixed(1) : 0,
-      rank: ov.pos,
-    };
-  });
-
-  return { subjects: uniqueSubjects, studentMap, summaries };
-}, [classGradesData, pupils, tests, classesCache, schoolId, selectedClass]);
+    return { subjects: uniqueSubjects, studentMap, summaries };
+  }, [classGradesData, pupils, tests, classesCache, schoolId, selectedClass]);
 
   // --- 4. EXPORT ---
   const handlePrint = () => {
@@ -338,6 +403,10 @@ const broadSheet = useMemo(() => {
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-indigo-600 font-bold animate-pulse">Calculating Broad Sheet...</p>
         </div>
+      ) : broadSheet.subjects.length === 0 ? (
+        <div className="text-center p-12 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-medium">
+          Please select a standard Lower or Upper Primary Class class setup to preview the core broadsheet structure.
+        </div>
       ) : (
         <div className="overflow-x-auto border border-gray-200 rounded-2xl shadow-sm">
           <table className="w-full text-center text-[11px] border-collapse">
@@ -376,10 +445,10 @@ const broadSheet = useMemo(() => {
                       const r = broadSheet.studentMap[p.studentID]?.[sub] || {};
                       return (
                         <React.Fragment key={`${p.studentID}-${sub}`}>
-                          <td className="p-2 border-r">{r.t1}</td>
-                          <td className="p-2 border-r">{r.t2}</td>
-                          <td className="p-2 border-r font-bold bg-indigo-50/30 text-indigo-700">{r.mean}</td>
-                          <td className="p-2 border-r font-medium text-red-400">{r.rank}</td>
+                          <td className="p-2 border-r">{r.t1 || 0}</td>
+                          <td className="p-2 border-r">{r.t2 || 0}</td>
+                          <td className="p-2 border-r font-bold bg-indigo-50/30 text-indigo-700">{r.mean || 0}</td>
+                          <td className="p-2 border-r font-medium text-red-400">{r.rank || "—"}</td>
                         </React.Fragment>
                       );
                     })}
@@ -391,7 +460,7 @@ const broadSheet = useMemo(() => {
                   .filter((p) => selectedPupil === "all" || p.studentID === selectedPupil)
                   .map((p) => (
                     <td key={`tot-${p.studentID}`} colSpan="4" className="border-r text-sm">
-                      {broadSheet.summaries[p.studentID]?.total}
+                      {broadSheet.summaries[p.studentID]?.total || 0}
                     </td>
                   ))}
               </tr>
@@ -400,7 +469,7 @@ const broadSheet = useMemo(() => {
                 {pupils
                   .filter((p) => selectedPupil === "all" || p.studentID === selectedPupil)
                   .map((p) => {
-                    const perc = broadSheet.summaries[p.studentID]?.perc;
+                    const perc = broadSheet.summaries[p.studentID]?.perc || 0;
                     return (
                       <td
                         key={`perc-${p.studentID}`}
@@ -418,7 +487,7 @@ const broadSheet = useMemo(() => {
                   .filter((p) => selectedPupil === "all" || p.studentID === selectedPupil)
                   .map((p) => (
                     <td key={`pos-${p.studentID}`} colSpan="4" className="border-r text-lg">
-                      {broadSheet.summaries[p.studentID]?.rank}
+                      {broadSheet.summaries[p.studentID]?.rank || "—"}
                     </td>
                   ))}
               </tr>
