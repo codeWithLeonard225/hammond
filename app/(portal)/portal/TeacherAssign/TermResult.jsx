@@ -10,6 +10,21 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 
 // --- FIXED SUBJECT SCHEMAS BY CLASS LEVEL ---
+const NURSERY_SUBJECTS = [
+    "Mathematics",
+    "Word Building",
+    "Hand writing",
+    "Spelling & Dictation",
+    "E. S. P. S",
+    "Religious Education",
+    "Environmental studies",
+    "Physical Health Education",
+    "Composition",
+    "Rhymes",
+    "Literature",
+    "Creative Practical Arts",
+    "French"
+];
 const LOWER_PRIMARY_SUBJECTS = [
     "E. S. P. S",
     "Mathematics",
@@ -59,12 +74,14 @@ const UPPER_PRIMARY_SUBJECTS = [
 const getSubjectsForClass = (className) => {
     if (!className) return [];
     
-    // Normalize string and check structural prefixes to handle variations like "Class 5A", "Class 5B" safely
+    // Normalize string and check structural prefixes to handle variations safely
     const normalized = className.trim();
 
+    const isNursery = [/^Nursery/i].some(regex => regex.test(normalized));
     const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
     const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
 
+    if (isNursery) return NURSERY_SUBJECTS;
     if (isLowerPrimary) return LOWER_PRIMARY_SUBJECTS;
     if (isUpperPrimary) return UPPER_PRIMARY_SUBJECTS;
     
@@ -405,7 +422,7 @@ const TermResult = () => {
         </div>
       ) : broadSheet.subjects.length === 0 ? (
         <div className="text-center p-12 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-medium">
-          Please select a standard Lower or Upper Primary Class class setup to preview the core broadsheet structure.
+          Please select a standard Nursery, Lower Primary, or Upper Primary class setup to preview the core broadsheet structure.
         </div>
       ) : (
         <div className="overflow-x-auto border border-gray-200 rounded-2xl shadow-sm">

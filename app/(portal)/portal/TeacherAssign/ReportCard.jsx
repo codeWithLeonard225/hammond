@@ -10,6 +10,22 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 
 // --- FIXED SUBJECT SCHEMAS BY CLASS LEVEL ---
+const NURSERY_SUBJECTS = [
+    "Mathematics",
+    "Word Building",
+    "Hand writing",
+    "Spelling & Dictation",
+    "E. S. P. S",
+    "Religious Education",
+    "Environmental studies",
+    "Physical Health Education",
+    "Composition",
+    "Rhymes",
+    "Literature",
+    "Creative Practical Arts",
+    "French"
+];
+
 const LOWER_PRIMARY_SUBJECTS = [
     "E. S. P. S",
     "Mathematics",
@@ -61,9 +77,11 @@ const getSubjectsForClass = (className) => {
     
     const normalized = className.trim();
 
+    const isNursery = [/^nursery\s+1/i, /^nursery\s+2/i, /^nursery\s+3/i].some(regex => regex.test(normalized));
     const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
     const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
 
+    if (isNursery) return NURSERY_SUBJECTS;
     if (isLowerPrimary) return LOWER_PRIMARY_SUBJECTS;
     if (isUpperPrimary) return UPPER_PRIMARY_SUBJECTS;
     
@@ -108,6 +126,11 @@ const ReportCard = () => {
 
   const tests = termTests[selectedTerm];
 
+  // Check if current selection is Nursery
+  const isNurseryClass = useMemo(() => {
+    return /^nursery/i.test(selectedClass);
+  }, [selectedClass]);
+
   // Dynamic grade color based on the maximum marks for each column
   const getGradeColor = (value, maxMarks) => {
     const grade = Number(value);
@@ -116,7 +139,9 @@ const ReportCard = () => {
       return "text-gray-400";
     }
 
-    const passMark = maxMarks * 0.5;
+    // Scale thresholds automatically if nursery profile is triggered
+    const ceiling = isNurseryClass ? 10 : maxMarks;
+    const passMark = ceiling * 0.5;
 
     return grade >= passMark
       ? "text-blue-600 font-bold"
@@ -210,7 +235,9 @@ const ReportCard = () => {
     const pupilIDs = pupils.map((p) => p.studentID);
 
     const classInfo = classesCache.find(c => c.schoolId === schoolId && c.className === selectedClass);
-    const totalSubjectPercentage = classInfo?.subjectPercentage || (uniqueSubjects.length * 100);
+    // Scale total baseline calculations if a nursery category is loaded
+    const defaultTotal = isNurseryClass ? uniqueSubjects.length * 20 : uniqueSubjects.length * 100;
+    const totalSubjectPercentage = classInfo?.subjectPercentage || defaultTotal;
 
     const classMeansBySubject = {};
     for (const subject of uniqueSubjects) {
@@ -261,7 +288,7 @@ const ReportCard = () => {
     const overallPercentage = totalSubjectPercentage > 0 ? ((totalSum / totalSubjectPercentage) * 100).toFixed(1) : 0;
 
     return { reportRows: subjectData, totalMarks, overallPercentage, overallRank };
-  }, [pupilGradesData, classGradesData, pupils, selectedPupil, selectedTerm, selectedClass, classesCache, tests, schoolId]);
+  }, [pupilGradesData, classGradesData, pupils, selectedPupil, selectedTerm, selectedClass, classesCache, tests, schoolId, isNurseryClass]);
 
   const pupilInfo = useMemo(() => pupils.find((p) => p.studentID === selectedPupil) || null, [pupils, selectedPupil]);
 
@@ -341,10 +368,11 @@ const ReportCard = () => {
           if (gradeColumns.includes(data.column.index)) {
             const grade = Number(data.cell.raw) || 0;
             
-            // Set dynamic thresholds based on PDF columns: T1 = 30, T2 = 70, Mean = 100
+            // Adjust threshold ceilings conditionally for Nursery setups
             let maxMarks = 100;
-            if (data.column.index === 1) maxMarks = 30;
-            if (data.column.index === 2) maxMarks = 70;
+            if (data.column.index === 1) maxMarks = isNurseryClass ? 10 : 30;
+            if (data.column.index === 2) maxMarks = isNurseryClass ? 10 : 70;
+            if (data.column.index === 3) maxMarks = isNurseryClass ? 20 : 100;
 
             const passMark = maxMarks * 0.5;
 
@@ -443,16 +471,16 @@ const ReportCard = () => {
               {reportRows.map((row, idx) => (
                 <tr key={idx} className="border-b hover:bg-gray-50">
                   <td className="text-left px-4 py-2 font-semibold">{row.subject}</td>
-                  {/* T1 = 30 Marks */}
-                  <td className={`px-4 py-2 ${getGradeColor(row.test1, 30)}`}>
+                  {/* Test 1 Grade */}
+                  <td className={`px-4 py-2 ${getGradeColor(row.test1, isNurseryClass ? 10 : 30)}`}>
                     {row.test1 || 0}
                   </td>
-                  {/* T2 = 70 Marks */}
-                  <td className={`px-4 py-2 ${getGradeColor(row.test2, 70)}`}>
+                  {/* Test 2 Grade */}
+                  <td className={`px-4 py-2 ${getGradeColor(row.test2, isNurseryClass ? 10 : 70)}`}>
                     {row.test2 || 0}
                   </td>
-                  {/* Mean = 100 Marks */}
-                  <td className={`px-4 py-2 font-bold ${getGradeColor(row.mean, 100)}`}>
+                  {/* Mean Grade */}
+                  <td className={`px-4 py-2 font-bold ${getGradeColor(row.mean, isNurseryClass ? 20 : 100)}`}>
                     {row.mean || 0}
                   </td>
                   <td className="px-4 py-2 font-bold text-red-600">{row.rank || "—"}</td>
@@ -480,7 +508,7 @@ const ReportCard = () => {
         </div>
       ) : (
         <div className="text-center p-12 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 font-medium">
-          Please select a standard Lower or Upper Primary Class setup to preview the student report profile structure.
+          Please select a standard Nursery or Primary Class setup to preview the student report profile structure.
         </div>
       )}
     </div>

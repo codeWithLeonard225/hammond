@@ -30,6 +30,22 @@ const gradesStore = localforage.createInstance({
 });
 
 // --- FIXED SUBJECT SCHEMAS BY CLASS LEVEL ---
+const NURSERY_SUBJECTS = [
+    "Mathematics",
+    "Word Building",
+    "Hand writing",
+    "Spelling & Dictation",
+    "E. S. P. S",
+    "Religious Education",
+    "Environmental studies",
+    "Physical Health Education",
+    "Composition",
+    "Rhymes",
+    "Literature",
+    "Creative Practical Arts",
+    "French"
+];
+
 const LOWER_PRIMARY_SUBJECTS = [
     "E. S. P. S",
     "Mathematics",
@@ -79,14 +95,17 @@ const UPPER_PRIMARY_SUBJECTS = [
 const getSubjectsForClass = (className) => {
     if (!className) return [];
     
-    // Normalize string and check structural prefixes to handle variations like "Class 5A", "Class 5B" safely
     const normalized = className.trim();
 
+    // Use regex to catch variations (e.g., "Nursery 1", "Class 1", "Class 1A", "CLASS 2B")
+    const isNursery = [/^Nursery/i].some(regex => regex.test(normalized));
     const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
     const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
 
-    if (isLowerPrimary) return LOWER_PRIMARY_SUBJECTS;
-    if (isUpperPrimary) return UPPER_PRIMARY_SUBJECTS;
+    // Returning a fresh array copy [...] prevents any internal or external mutation/sorting
+    if (isNursery) return [...NURSERY_SUBJECTS];
+    if (isLowerPrimary) return [...LOWER_PRIMARY_SUBJECTS];
+    if (isUpperPrimary) return [...UPPER_PRIMARY_SUBJECTS];
     
     return [];
 };
@@ -397,22 +416,7 @@ const GradeSheetPage = () => {
     };
 
     const activeStudentName = pupils.find(p => p.studentID === selectedPupilId)?.studentName || "Select Student";
-// Helper to determine subject sequence based on standard class groupings
-const getSubjectsForClass = (className) => {
-    if (!className) return [];
-    
-    const normalized = className.trim();
 
-    // Use regex to catch spelling variations (e.g., "Class 1", "Class 1A", "CLASS 2B")
-    const isLowerPrimary = [/^Class\s+1/i, /^Class\s+2/i].some(regex => regex.test(normalized));
-    const isUpperPrimary = [/^Class\s+3/i, /^Class\s+4/i, /^Class\s+5/i, /^Class\s+6/i].some(regex => regex.test(normalized));
-
-    // Returning a fresh array copy [...] prevents any internal or external mutation/sorting
-    if (isLowerPrimary) return [...LOWER_PRIMARY_SUBJECTS];
-    if (isUpperPrimary) return [...UPPER_PRIMARY_SUBJECTS];
-    
-    return [];
-};
     return (
         <div className="max-w-7xl mx-auto p-6 bg-white rounded-3xl shadow-2xl relative border border-gray-100">
             {/* Header section */}
