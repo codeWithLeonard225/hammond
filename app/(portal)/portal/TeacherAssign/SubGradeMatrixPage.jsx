@@ -63,6 +63,7 @@ const GradeSheet = () => {
   const [classGradesData, setClassGradesData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [classesCache, setClassesCache] = useState([]);
+  const [selectedTermFilter, setSelectedTermFilter] = useState("all");
 
   const isFormTeacher = liveTeacherInfo?.isFormTeacher ?? user?.data?.isFormTeacher;
   const assignedClass = liveTeacherInfo?.assignClass ?? user?.data?.assignClass;
@@ -110,7 +111,7 @@ const GradeSheet = () => {
         if (classes.length > 0 && !selectedClass) setSelectedClass(classes[0]);
       }
     });
-  }, [schoolId, isFormTeacher, assignedClass]);
+  }, [schoolId, isFormTeacher, assignedClass, academicYear, selectedClass]);
 
   useEffect(() => {
     if (!academicYear || !selectedClass || schoolId === "N/A") return;
@@ -161,6 +162,10 @@ const GradeSheet = () => {
         totalMarks: 0, 
         overallPercentage: "0.0", 
         overallRank: "—",
+        showTerm1: true,
+        showTerm2: true,
+        showTerm3: true,
+        showYearly: true,
         term1Totals: { marks: 0, percentage: "0.0", rank: "—" },
         term2Totals: { marks: 0, percentage: "0.0", rank: "—" },
         term3Totals: { marks: 0, percentage: "0.0", rank: "—" }
@@ -175,14 +180,50 @@ const GradeSheet = () => {
     );
     const totalSubjectPercentage = classInfo?.subjectPercentage || uniqueSubjects.length * 100;
 
-    // Terms setup matching broadsheet configuration
     const termsMeta = [
       { term: "Term 1", tests: ["Term 1 T1", "Term 1 T2"] },
       { term: "Term 2", tests: ["Term 2 T1", "Term 2 T2"] },
       { term: "Term 3", tests: ["Term 3 T1", "Term 3 T2"] }
     ];
 
-    // Helper to extract ranks per term dynamically based on sorted class dataset
+    // Correct Subject-level ranking mechanism
+    const computeSubjectRanks = (termTests) => {
+      const rankMap = { T1: {}, T2: {}, Mean: {} };
+      
+      uniqueSubjects.forEach(sub => {
+        const subjectScores = pupils.map(p => {
+          const pData = classGradesData.filter(x => x.pupilID === p.studentID);
+          const g = pData.filter(x => x.subject?.trim().toLowerCase() === sub.toLowerCase());
+          const t1 = Number(g.find(x => x.test === termTests[0])?.grade || 0);
+          const t2 = Number(g.find(x => x.test === termTests[1])?.grade || 0);
+          return { id: p.studentID, t1, t2, mean: t1 + t2 };
+        });
+
+        const assignRanks = (arr, key) => {
+          arr.sort((a, b) => b[key] - a[key]);
+          const subRanks = {};
+          arr.forEach((item, index) => {
+            if (index > 0 && item[key] === arr[index - 1][key]) {
+              subRanks[item.id] = subRanks[arr[index - 1].id];
+            } else {
+              subRanks[item.id] = index + 1;
+            }
+          });
+          return subRanks;
+        };
+
+        rankMap.T1[sub] = assignRanks([...subjectScores], 't1');
+        rankMap.T2[sub] = assignRanks([...subjectScores], 't2');
+        rankMap.Mean[sub] = assignRanks([...subjectScores], 'mean');
+      });
+
+      return rankMap;
+    };
+
+    const t1SubRanks = computeSubjectRanks(termsMeta[0].tests);
+    const t2SubRanks = computeSubjectRanks(termsMeta[1].tests);
+    const t3SubRanks = computeSubjectRanks(termsMeta[2].tests);
+
     const computeTermRankings = (termTests) => {
       const termTotals = pupils.map((p) => {
         const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
@@ -207,7 +248,6 @@ const GradeSheet = () => {
     const t2Ranks = computeTermRankings(termsMeta[1].tests);
     const t3Ranks = computeTermRankings(termsMeta[2].tests);
 
-    // Compute Overall Yearly Rankings
     const yearlyRankings = pupils.map((p) => {
       const pData = classGradesData.filter((x) => x.pupilID === p.studentID);
       const yearlyTotal = uniqueSubjects.reduce((acc, sub) => {
@@ -238,23 +278,23 @@ const GradeSheet = () => {
         (x) => x.pupilID === selectedPupilId && x.subject?.trim().toLowerCase() === sub.toLowerCase()
       );
 
-      const getTermData = (testsArr, ranksArr) => {
+      const getTermData = (testsArr, subRanksObj) => {
         const t1 = Number(subjectGrades.find((x) => x.test === testsArr[0])?.grade || 0);
         const t2 = Number(subjectGrades.find((x) => x.test === testsArr[1])?.grade || 0);
         const mean = Math.round(t1 + t2);
-        const pupilRankObj = ranksArr.find(r => r.id === selectedPupilId);
-        return { t1, t2, mean, rnk: pupilRankObj?.pos || "—" };
+        
+        const rnk = subRanksObj.Mean[sub]?.[selectedPupilId] || "—";
+        return { t1, t2, mean, rnk };
       };
 
-      const term1 = getTermData(termsMeta[0].tests, t1Ranks);
-      const term2 = getTermData(termsMeta[1].tests, t2Ranks);
-      const term3 = getTermData(termsMeta[2].tests, t3Ranks);
+      const term1 = getTermData(termsMeta[0].tests, t1SubRanks);
+      const term2 = getTermData(termsMeta[1].tests, t2SubRanks);
+      const term3 = getTermData(termsMeta[2].tests, t3SubRanks);
 
       t1TotalMarks += term1.mean;
       t2TotalMarks += term2.mean;
       t3TotalMarks += term3.mean;
 
-      // Yearly Cumulative Evaluation 
       const yearlyTotal = term1.mean + term2.mean + term3.mean;
       const yearlyMean = Math.round(yearlyTotal / 3);
       const yearlyRnk = yearlyRankings.find(r => r.id === selectedPupilId)?.pos || "—";
@@ -273,12 +313,21 @@ const GradeSheet = () => {
       return totalSubjectPercentage > 0 ? ((termMarks / totalSubjectPercentage) * 100).toFixed(1) : "0.0";
     };
 
+    const showTerm1 = selectedTermFilter === "all" || selectedTermFilter.includes("Term 1");
+    const showTerm2 = selectedTermFilter === "all" || selectedTermFilter.includes("Term 2");
+    const showTerm3 = selectedTermFilter === "all" || selectedTermFilter.includes("Term 3");
+    const showYearly = selectedTermFilter === "all";
+
     return { 
       subjects: uniqueSubjects, 
       records, 
       totalMarks: cumulativeTotalMarks, 
       overallPercentage: overallPerc, 
       overallRank: overallPos,
+      showTerm1,
+      showTerm2,
+      showTerm3,
+      showYearly,
       term1Totals: {
         marks: t1TotalMarks,
         percentage: getTermPerc(t1TotalMarks),
@@ -295,7 +344,7 @@ const GradeSheet = () => {
         rank: t3Ranks.find(r => r.id === selectedPupilId)?.pos || "—"
       }
     };
-  }, [selectedPupilId, pupils, classGradesData, selectedClass, classesCache, schoolId, academicYear]);
+  }, [selectedPupilId, pupils, classGradesData, selectedClass, classesCache, schoolId, academicYear, selectedTermFilter]);
 
   const selectedPupilName = pupils.find(p => p.studentID === selectedPupilId)?.studentName || "";
 
@@ -305,38 +354,54 @@ const GradeSheet = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 bg-white min-h-screen">
-      <style jsx global>{`
-        @media print {
-          @page {
-            size: A4 landscape;
-            margin: 8mm;
-          }
-          body {
-            background: white !important;
-            font-size: 10px !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          .print-landscape {
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            box-shadow: none !important;
-            background: none !important;
-            border: none !important;
-          }
-          /* Ensure table fits perfectly horizontally */
-          table {
-            table-layout: auto !important;
-            width: 100% !important;
-          }
-          th, td {
-            padding: 4px 2px !important;
-            font-size: 9px !important;
-          }
-        }
-      `}</style>
+    <style jsx global>{`
+  @media print {
+    @page {
+      size: A4 landscape;
+      margin: 0mm;
+    }
+    
+    body { background: white !important; }
+    .no-print { display: none !important; }
+    
+    .print-landscape {
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+
+    /* Table borders enforced */
+    table {
+      width: 100% !important;
+      table-layout: fixed !important;
+      border-collapse: collapse !important;
+      border: 1px solid #000 !important; /* Outer table border */
+    }
+
+    th, td {
+      padding: 3px 2px !important;
+      font-size: 12px !important;
+      border: 1px solid #000 !important; /* THIS LINE IS CRITICAL: Adds borders to all cells */
+      text-align: center !important;
+    }
+
+    /* Ensure table headers have high contrast for print */
+    thead th {
+      background-color: #1e3a8a !important;
+      color: #fff !important;
+      border: 1px solid #000 !important;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* Footer styles */
+    tfoot tr {
+      background-color: #e0e7ff !important;
+      -webkit-print-color-adjust: exact;
+    }
+  }
+`}</style>
 
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 bg-indigo-900 p-6 rounded-2xl text-white shadow-lg no-print">
@@ -360,7 +425,7 @@ const GradeSheet = () => {
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 no-print">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8 no-print">
         <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
           <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Academic Year</label>
           <select
@@ -400,10 +465,26 @@ const GradeSheet = () => {
             ))}
           </select>
         </div>
+
+        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+          <label className="text-[10px] font-black text-gray-400 uppercase mb-2 block">Term Filter</label>
+          <select
+            className="w-full bg-transparent font-bold text-gray-700 outline-none"
+            value={selectedTermFilter}
+            onChange={(e) => setSelectedTermFilter(e.target.value)}
+          >
+            <option value="all">All Terms</option>
+            <option value="Term 1">Term 1 Only</option>
+            <option value="Term 2">Term 2 Only</option>
+            <option value="Term 3">Term 3 Only</option>
+            <option value="Term 1, Term 2">Term 1 & Term 2</option>
+            <option value="Term 2, Term 3">Term 2 & Term 3</option>
+            <option value="Term 1, Term 3">Term 1 & Term 3</option>
+          </select>
+        </div>
       </div>
 
       {/* Main Grade Sheet Presentation */}
-     {/* Main Grade Sheet Presentation */}
       {loading ? (
         <div className="flex flex-col items-center justify-center h-64 space-y-4">
           <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
@@ -414,48 +495,70 @@ const GradeSheet = () => {
           No records or pupils found matching current filter specifications.
         </div>
       ) : (
-        <div ref={printStyleRef} className="print-landscape bg-slate-50 border border-slate-200 rounded-2xl p-6 shadow-sm">
-          {/* Pupil name and class identification block (now visible in print) */}
-          <div className="mb-6 pb-4 border-b border-slate-200 flex justify-between items-center">
-             <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase block tracking-wider">Pupil Name</span>
-                <h2 className="text-2xl font-black text-indigo-950 uppercase">{selectedPupilName}</h2>
-             </div>
-             <div className="bg-indigo-100/50 text-indigo-800 px-4 py-2 rounded-xl font-black text-sm border border-indigo-200">
-                {selectedClass}
-             </div>
-          </div>
+        <div 
+
+
+      ref={printStyleRef} 
+  className="print-landscape bg-slate-50 border border-slate-200 rounded-2xl p-6 shadow-sm"
+  style={{ breakInside: 'avoid' }} // Prevents splitting in the middle of the table
+>
+  {/* The Pupil Name/Class Header inside the print-landscape div */}
+  <div className="border-b border-slate-200 flex justify-between items-center">
+    <div>
+      <span className="text-[6px] font-black text-slate-400 uppercase">Pupil Name</span>
+      <h2 className="text-2xl font-black text-indigo-950 uppercase">{selectedPupilName}</h2>
+    </div>
+    <div className="bg-indigo-900 text-white px-4 py-2 rounded-lg font-black text-sm">
+      {selectedClass}
+    </div>
+  </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-center text-[12px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-100">
+            <table className="w-full text-center text-[14px] border-collapse bg-white rounded-xl overflow-hidden border border-slate-100">
                 <thead>
-                    <tr className="bg-indigo-900 text-white font-black text-[11px]">
-                        <th className="p-4 text-left border-r border-indigo-950 w-[220px]">SUBJECTS</th>
-                        <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 1</th>
-                        <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 2</th>
-                        <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 3</th>
-                        <th colSpan="2" className="p-2 bg-emerald-800 border-r border-emerald-900">YEARLY</th>
+                    <tr className="bg-indigo-900 text-white font-black text-[13px]">
+                        <th className="p-4 text-left border-r border-indigo-950 w-[240px]">SUBJECTS</th>
+                        {gradeSheetData.showTerm1 && <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 1</th>}
+                        {gradeSheetData.showTerm2 && <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 2</th>}
+                        {gradeSheetData.showTerm3 && <th colSpan="4" className="p-2 border-r border-indigo-950">TERM 3</th>}
+                        {gradeSheetData.showYearly && <th colSpan="2" className="p-2 bg-emerald-800 border-r border-emerald-900">YEARLY</th>}
                     </tr>
-                    <tr className="bg-slate-100 text-slate-600 font-black text-[10px]">
+                    <tr className="bg-slate-100 text-slate-600 font-black text-[11px]">
                         <th className="border-r border-b"></th>
                         {/* Term 1 */}
-                        <th className="p-2 border-r border-b w-[50px]">T1</th>
-                        <th className="p-2 border-r border-b w-[50px]">T2</th>
-                        <th className="p-2 border-r border-b w-[50px] bg-indigo-50/50">Mn</th>
-                        <th className="p-2 border-r border-b w-[50px] text-red-500">Rnk</th>
+                        {gradeSheetData.showTerm1 && (
+                          <>
+                            <th className="p-3 border-r border-b w-[55px]">T1</th>
+                            <th className="p-3 border-r border-b w-[55px]">T2</th>
+                            <th className="p-3 border-r border-b w-[55px] bg-indigo-50/50">Mn</th>
+                            <th className="p-3 border-r border-b w-[55px] text-red-500">Rnk</th>
+                          </>
+                        )}
                         {/* Term 2 */}
-                        <th className="p-2 border-r border-b w-[50px]">T1</th>
-                        <th className="p-2 border-r border-b w-[50px]">T2</th>
-                        <th className="p-2 border-r border-b w-[50px] bg-indigo-50/50">Mn</th>
-                        <th className="p-2 border-r border-b w-[50px] text-red-500">Rnk</th>
+                        {gradeSheetData.showTerm2 && (
+                          <>
+                            <th className="p-3 border-r border-b w-[55px]">T1</th>
+                            <th className="p-3 border-r border-b w-[55px]">T2</th>
+                            <th className="p-3 border-r border-b w-[55px] bg-indigo-50/50">Mn</th>
+                            <th className="p-3 border-r border-b w-[55px] text-red-500">Rnk</th>
+                          </>
+                        )}
                         {/* Term 3 */}
-                        <th className="p-2 border-r border-b w-[50px]">T1</th>
-                        <th className="p-2 border-r border-b w-[50px]">T2</th>
-                        <th className="p-2 border-r border-b w-[50px] bg-indigo-50/50">Mn</th>
-                        <th className="p-2 border-r border-b w-[50px] text-red-500">Rnk</th>
+                        {gradeSheetData.showTerm3 && (
+                          <>
+                            <th className="p-3 border-r border-b w-[55px]">T1</th>
+                            <th className="p-3 border-r border-b w-[55px]">T2</th>
+                            <th className="p-3 border-r border-b w-[55px] bg-indigo-50/50">Mn</th>
+                            <th className="p-3 border-r border-b w-[55px] text-red-500">Rnk</th>
+                          </>
+                        )}
                         {/* Yearly */}
-                        <th className="p-2 border-r border-b w-[60px] bg-emerald-50 text-emerald-800">Mn</th>
-                        <th className="p-2 border-b w-[50px] bg-emerald-50 text-red-500">Rnk</th>
+                        {gradeSheetData.showYearly && (
+                          <>
+                            <th className="p-3 border-r border-b w-[65px] bg-emerald-50 text-emerald-800">Mn</th>
+                            <th className="p-3 border-b w-[55px] bg-emerald-50 text-red-500">Rnk</th>
+                          </>
+                        )}
                     </tr>
                 </thead>
                 <tbody>
@@ -468,87 +571,105 @@ const GradeSheet = () => {
                         };
                         return (
                             <tr key={sub} className="hover:bg-slate-50 transition-colors border-b border-slate-100 font-bold text-slate-700">
-                                <td className="p-3 text-left border-r bg-slate-50/70 text-slate-800 text-[11px]">{sub}</td>
+                                <td className="p-4 text-left border-r bg-slate-50/70 text-slate-800 text-[13px]">{sub}</td>
                                 
-                                {/* T1 Data */}
-                                <td className="p-2 border-r border-slate-100">{dat.term1.t1}</td>
-                                <td className="p-2 border-r border-slate-100">{dat.term1.t2}</td>
-                                <td className="p-2 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term1.mean}</td>
-                                <td className="p-2 border-r border-slate-100 font-medium text-red-400 text-[10px]">{dat.term1.rnk}</td>
+                                {gradeSheetData.showTerm1 && (
+                                  <>
+                                    <td className="p-3 border-r border-slate-100">{dat.term1.t1}</td>
+                                    <td className="p-3 border-r border-slate-100">{dat.term1.t2}</td>
+                                    <td className="p-3 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term1.mean}</td>
+                                    <td className="p-3 border-r border-slate-100 font-medium text-red-500 text-[11px]">{dat.term1.rnk}</td>
+                                  </>
+                                )}
 
-                                {/* T2 Data */}
-                                <td className="p-2 border-r border-slate-100">{dat.term2.t1}</td>
-                                <td className="p-2 border-r border-slate-100">{dat.term2.t2}</td>
-                                <td className="p-2 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term2.mean}</td>
-                                <td className="p-2 border-r border-slate-100 font-medium text-red-400 text-[10px]">{dat.term2.rnk}</td>
+                                {gradeSheetData.showTerm2 && (
+                                  <>
+                                    <td className="p-3 border-r border-slate-100">{dat.term2.t1}</td>
+                                    <td className="p-3 border-r border-slate-100">{dat.term2.t2}</td>
+                                    <td className="p-3 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term2.mean}</td>
+                                    <td className="p-3 border-r border-slate-100 font-medium text-red-500 text-[11px]">{dat.term2.rnk}</td>
+                                  </>
+                                )}
 
-                                {/* T3 Data */}
-                                <td className="p-2 border-r border-slate-100">{dat.term3.t1}</td>
-                                <td className="p-2 border-r border-slate-100">{dat.term3.t2}</td>
-                                <td className="p-2 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term3.mean}</td>
-                                <td className="p-2 border-r border-slate-100 font-medium text-red-400 text-[10px]">{dat.term3.rnk}</td>
+                                {gradeSheetData.showTerm3 && (
+                                  <>
+                                    <td className="p-3 border-r border-slate-100">{dat.term3.t1}</td>
+                                    <td className="p-3 border-r border-slate-100">{dat.term3.t2}</td>
+                                    <td className="p-3 border-r border-slate-100 bg-indigo-50/30 text-indigo-700">{dat.term3.mean}</td>
+                                    <td className="p-3 border-r border-slate-100 font-medium text-red-500 text-[11px]">{dat.term3.rnk}</td>
+                                  </>
+                                )}
 
                                 {/* Yearly */}
-                                <td className="p-2 border-r border-slate-100 bg-emerald-50/30 text-emerald-800">{dat.yearly.mean}</td>
-                                <td className="p-2 border-r border-slate-100 font-medium text-red-400 text-[10px] bg-emerald-50/30">{dat.yearly.rnk}</td>
+                                {gradeSheetData.showYearly && (
+                                  <>
+                                    <td className="p-3 border-r border-slate-100 bg-emerald-50/30 text-emerald-800">{dat.yearly.mean}</td>
+                                    <td className="p-3 border-r border-slate-100 font-medium text-red-500 text-[11px] bg-emerald-50/30">{dat.yearly.rnk}</td>
+                                  </>
+                                )}
                             </tr>
                         );
                     })}
                 </tbody>
                 <tfoot>
-                    {/* Per Term Totals / Averages */}
+                    {/* Per Term Totals Block */}
                     <tr className="bg-indigo-50/80 font-extrabold text-indigo-900 border-t-2 border-indigo-500">
-                        <td className="text-left px-4 py-2 border-r">Term Totals</td>
-                        <td colSpan="2" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term1Totals.marks}</td>
-                        <td className="border-r border-indigo-200">—</td>
-                        <td colSpan="2" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term2Totals.marks}</td>
-                        <td className="border-r border-indigo-200">—</td>
-                        <td colSpan="2" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term3Totals.marks}</td>
-                        <td className="border-r border-indigo-200">—</td>
-                        <td colSpan="2"></td>
+                        <td className="text-left px-4 py-3 border-r">Term Totals</td>
+                        {gradeSheetData.showTerm1 && <><td colSpan="2" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term1Totals.marks}</td><td className="border-r border-indigo-200">—</td></>}
+                        {gradeSheetData.showTerm2 && <><td colSpan="2" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term2Totals.marks}</td><td className="border-r border-indigo-200">—</td></>}
+                        {gradeSheetData.showTerm3 && <><td colSpan="2" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term3Totals.marks}</td><td className="border-r border-indigo-200">—</td></>}
+                        {gradeSheetData.showYearly && <td colSpan="2"></td>}
                     </tr>
                     <tr className="bg-indigo-50/40 font-bold text-indigo-800">
-                        <td className="text-left px-4 py-2 border-r">Term %</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term1Totals.percentage}%</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term2Totals.percentage}%</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200">{gradeSheetData.term3Totals.percentage}%</td>
-                        <td colSpan="2"></td>
+                        <td className="text-left px-4 py-3 border-r">Term %</td>
+                        {gradeSheetData.showTerm1 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term1Totals.percentage}%</td></>}
+                        {gradeSheetData.showTerm2 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term2Totals.percentage}%</td></>}
+                        {gradeSheetData.showTerm3 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.term3Totals.percentage}%</td></>}
+                        {gradeSheetData.showYearly && <td colSpan="2"></td>}
                     </tr>
                     <tr className="bg-indigo-100 font-bold border-b border-indigo-400 text-indigo-900">
-                        <td className="text-left px-4 py-2 border-r">Term Position</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200 text-red-600">{gradeSheetData.term1Totals.rank}</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200 text-red-600">{gradeSheetData.term2Totals.rank}</td>
-                        <td colSpan="3" className="border-r border-indigo-200"></td>
-                        <td className="px-4 py-2 border-r border-indigo-200 text-red-600">{gradeSheetData.term3Totals.rank}</td>
-                        <td colSpan="2"></td>
+                        <td className="text-left px-4 py-3 border-r">Term Position</td>
+                        {gradeSheetData.showTerm1 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200 text-red-600">{gradeSheetData.term1Totals.rank}</td></>}
+                        {gradeSheetData.showTerm2 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200 text-red-600">{gradeSheetData.term2Totals.rank}</td></>}
+                        {gradeSheetData.showTerm3 && <><td colSpan="3" className="border-r border-indigo-200"></td><td className="px-4 py-3 border-r border-indigo-200 text-red-600">{gradeSheetData.term3Totals.rank}</td></>}
+                        {gradeSheetData.showYearly && <td colSpan="2"></td>}
                     </tr>
 
-                    {/* Overall Cumulative Metrics */}
-                    <tr className="bg-indigo-100 font-bold text-slate-700 mt-4 border-t-4 border-indigo-950">
-                        <td className="text-left px-4 py-3 border-r">Cumulative Total Marks</td>
-                        <td colSpan="12"></td>
-                        <td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.totalMarks}</td>
-                        <td className="border-r border-indigo-200">—</td>
-                    </tr>
-                    <tr className="bg-indigo-100/70 font-bold text-slate-700">
-                        <td className="text-left px-4 py-3 border-r">Overall Percentage</td>
-                        <td colSpan="12"></td>
-                        <td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.overallPercentage}%</td>
-                        <td className="border-r border-indigo-200">—</td>
-                    </tr>
-                    <tr className="bg-indigo-200 font-bold border-b-2 border-indigo-600 text-slate-800">
-                        <td className="text-left px-4 py-3 border-r">Overall Position</td>
-                        <td colSpan="13"></td>
-                        <td className="text-lg border-r border-indigo-300">{gradeSheetData.overallRank}</td>
-                    </tr>
+                    {/* Overall Cumulative Metrics (Only show Overall when Yearly is visible) */}
+                    {gradeSheetData.showYearly && (
+                      <>
+                        <tr className="bg-indigo-100 font-bold text-slate-700 mt-4 border-t-4 border-indigo-950">
+                            <td className="text-left px-4 py-3 border-r">Cumulative Total Marks</td>
+                            <td colSpan={
+                              (gradeSheetData.showTerm1 ? 4 : 0) + 
+                              (gradeSheetData.showTerm2 ? 4 : 0) + 
+                              (gradeSheetData.showTerm3 ? 4 : 0)
+                            }></td>
+                            <td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.totalMarks}</td>
+                            <td className="border-r border-indigo-200">—</td>
+                        </tr>
+                        <tr className="bg-indigo-100/70 font-bold text-slate-700">
+                            <td className="text-left px-4 py-3 border-r">Overall Percentage</td>
+                            <td colSpan={
+                              (gradeSheetData.showTerm1 ? 4 : 0) + 
+                              (gradeSheetData.showTerm2 ? 4 : 0) + 
+                              (gradeSheetData.showTerm3 ? 4 : 0)
+                            }></td>
+                            <td className="px-4 py-3 border-r border-indigo-200">{gradeSheetData.overallPercentage}%</td>
+                            <td className="border-r border-indigo-200">—</td>
+                        </tr>
+                        <tr className="bg-indigo-200 font-bold border-b-2 border-indigo-600 text-slate-800">
+                            <td className="text-left px-4 py-4 border-r">Overall Position</td>
+                            <td colSpan={
+                              2 + 
+                              (gradeSheetData.showTerm1 ? 4 : 0) + 
+                              (gradeSheetData.showTerm2 ? 4 : 0) + 
+                              (gradeSheetData.showTerm3 ? 4 : 0)
+                            }></td>
+                            <td className="text-lg border-r border-indigo-300">{gradeSheetData.overallRank}</td>
+                        </tr>
+                      </>
+                    )}
                 </tfoot>
             </table>
           </div>

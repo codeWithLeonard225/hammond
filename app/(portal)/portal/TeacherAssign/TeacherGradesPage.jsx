@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 
 // ✅ Your Specific Databases
-import { db } from "@/app/lib/firebase"; 
+import { db } from "@/app/lib/firebase";
 import { pupilresult } from "@/app/lilresult/resultFetch";
 import { pupilLoginFetch } from "@/app/lilpupil/PupilLogin";
 // ✅ Firestore
@@ -39,51 +39,69 @@ const TeacherGradesPage = () => {
   const [selectedSubject, setSelectedSubject] = useState("");
   const [grades, setGrades] = useState({});
   const [selectedTest, setSelectedTest] = useState("Term 1 T1");
-  const [academicYear, setAcademicYear] = useState("");
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
   const [gradeSummary, setGradeSummary] = useState({ filled: 0, empty: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [gradesToDownload, setGradesToDownload] = useState(null);
   const [showDownloadPopup, setShowDownloadPopup] = useState(false);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [academicYear, setAcademicYear] = useState("");
 
   const tests = ["Term 1 T1", "Term 1 T2", "Term 2 T1", "Term 2 T2", "Term 3 T1", "Term 3 T2"];
 
   /** 1. Fetch Latest Year from PupilLoginFetch */
   useEffect(() => {
-    const q = query(collection(pupilLoginFetch, "PupilsReg"), orderBy("academicYear", "desc"), limit(1));
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) setAcademicYear(snapshot.docs[0].data().academicYear);
+    if (!schoolId) return;
+
+    const q = query(
+      collection(pupilLoginFetch, "PupilsReg"),
+      where("schoolId", "==", schoolId)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const years = [
+        ...new Set(
+          snapshot.docs.map(doc => doc.data().academicYear)
+        ),
+      ].sort((a, b) => b.localeCompare(a));
+
+      setAcademicYears(years);
+
+      if (!academicYear && years.length) {
+        setAcademicYear(years[0]); // Latest for this school
+      }
     });
-    return () => unsub();
-  }, []);
+
+    return () => unsubscribe();
+  }, [schoolId]);
 
   /** 2. Fetch Assignments from Main DB */
-useEffect(() => {
-  if (!teacherName || !schoolId) return;
+  useEffect(() => {
+    if (!teacherName || !schoolId) return;
 
-  const q = query(
-    collection(db, "TeacherAssignments"),
-    where("teacher", "==", teacherName),
-    where("schoolId", "==", schoolId)
-  );
+    const q = query(
+      collection(db, "TeacherAssignments"),
+      where("teacher", "==", teacherName),
+      where("schoolId", "==", schoolId)
+    );
 
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map(d => ({
-      id: d.id,
-      ...d.data()
-    }));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
 
-    setAssignments(data);
+      setAssignments(data);
 
-    if (data.length && !selectedClass) {
-      setSelectedClass(data[0].className);
-      setSelectedSubject(data[0].subjects[0]);
-    }
-  });
+      if (data.length && !selectedClass) {
+        setSelectedClass(data[0].className);
+        setSelectedSubject(data[0].subjects[0]);
+      }
+    });
 
-  return () => unsubscribe();
-}, [teacherName, schoolId]);
+    return () => unsubscribe();
+  }, [teacherName, schoolId]);
 
   /** 3. Sync Pupils via LocalForage */
   useEffect(() => {
@@ -100,21 +118,21 @@ useEffect(() => {
       onSnapshot(q, async (snapshot) => {
         const pupilsData = snapshot.docs.map(d => ({ id: d.id, studentID: d.id, ...d.data() }));
         await localforage.setItem(`pupils_${schoolId}_${academicYear}`, pupilsData);
-        
-      const classPupils = pupilsData
-  .filter(p => p.class === selectedClass)
-  .sort((a, b) =>
-    (a.studentName || "")
-      .trim()
-      .toLowerCase()
-      .localeCompare(
-        (b.studentName || "")
-          .trim()
-          .toLowerCase()
-      )
-  );
+
+        const classPupils = pupilsData
+          .filter(p => p.class === selectedClass)
+          .sort((a, b) =>
+            (a.studentName || "")
+              .trim()
+              .toLowerCase()
+              .localeCompare(
+                (b.studentName || "")
+                  .trim()
+                  .toLowerCase()
+              )
+          );
         setPupils(classPupils);
-        
+
         const initialGrades = {};
         classPupils.forEach(p => initialGrades[p.studentID] = "");
         setGrades(initialGrades);
@@ -133,7 +151,7 @@ useEffect(() => {
         where("subject", "==", selectedSubject),
         where("test", "==", selectedTest),
         where("academicYear", "==", academicYear),
-         where("schoolId", "==", schoolId)
+        where("schoolId", "==", schoolId)
       );
       const snap = await getDocs(q);
       setAlreadySubmitted(!snap.empty);
@@ -147,14 +165,14 @@ useEffect(() => {
   };
 
   const handleShowPopup = () => {
-  const filled = Object.values(grades).filter(v => v !== "" && v !== null).length;
-  setGradeSummary({ 
-    filled, 
-    empty: pupils.length - filled,
-    total: pupils.length 
-  });
-  setShowPopup(true);
-};
+    const filled = Object.values(grades).filter(v => v !== "" && v !== null).length;
+    setGradeSummary({
+      filled,
+      empty: pupils.length - filled,
+      total: pupils.length
+    });
+    setShowPopup(true);
+  };
 
   const handleSubmitGrades = async () => {
     setSubmitting(true);
@@ -203,6 +221,24 @@ useEffect(() => {
       <p className="mb-4 text-gray-700 font-medium">
         Logged in as: <span className="font-semibold">{teacherName}</span>
       </p>
+
+      <div className="mb-4">
+        <label className="font-medium text-gray-700">
+          Academic Year
+        </label>
+
+        <select
+          value={academicYear}
+          onChange={(e) => setAcademicYear(e.target.value)}
+          className="w-full border rounded-md px-3 py-2 mt-1"
+        >
+          {academicYears.map((year) => (
+            <option key={year} value={year}>
+              {year}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Test Selector */}
       <div className="mb-4">
@@ -282,68 +318,68 @@ useEffect(() => {
 
       {/* Confirm Popup */}
       {/* Improved Confirm Submission Popup */}
-{showPopup && (
-  <div className="fixed inset-0 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm z-50 p-4">
-    <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
-      
-      {/* Header */}
-      <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 text-center">
-        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Confirm Submission</h3>
-        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Review Grade Entry Summary</p>
-      </div>
+      {showPopup && (
+        <div className="fixed inset-0 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm z-50 p-4">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
 
-      {/* Stats Body */}
-      <div className="p-8 space-y-4">
-        <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
-          <span className="text-sm font-bold text-gray-500 uppercase">Total Pupils</span>
-          <span className="text-lg font-black text-gray-800">{gradeSummary.total}</span>
-        </div>
+            {/* Header */}
+            <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 text-center">
+              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Confirm Submission</h3>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Review Grade Entry Summary</p>
+            </div>
 
-        <div className="flex justify-between items-center p-4 bg-green-50 rounded-2xl border border-green-100">
-          <span className="text-sm font-bold text-green-700 uppercase flex items-center gap-2">
-            <span className="w-2 h-2 bg-green-500 rounded-full"></span> Grades Entered
-          </span>
-          <span className="text-lg font-black text-green-700">{gradeSummary.filled}</span>
-        </div>
+            {/* Stats Body */}
+            <div className="p-8 space-y-4">
+              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                <span className="text-sm font-bold text-gray-500 uppercase">Total Pupils</span>
+                <span className="text-lg font-black text-gray-800">{gradeSummary.total}</span>
+              </div>
 
-        <div className="flex justify-between items-center p-4 bg-amber-50 rounded-2xl border border-amber-100">
-          <span className="text-sm font-bold text-amber-700 uppercase flex items-center gap-2">
-            <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span> Grades Missing
-          </span>
-          <span className="text-lg font-black text-amber-700">{gradeSummary.empty}</span>
-        </div>
+              <div className="flex justify-between items-center p-4 bg-green-50 rounded-2xl border border-green-100">
+                <span className="text-sm font-bold text-green-700 uppercase flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span> Grades Entered
+                </span>
+                <span className="text-lg font-black text-green-700">{gradeSummary.filled}</span>
+              </div>
 
-        {/* Final Warning */}
-        <div className="mt-6 p-4 bg-red-50 rounded-2xl border-l-4 border-red-500">
-          <p className="text-[11px] font-bold text-red-700 leading-relaxed uppercase">
-            ⚠️ Attention: Once submitted, grades for <span className="underline">{selectedTest}</span> ({academicYear}) cannot be changed.
-          </p>
-        </div>
-      </div>
+              <div className="flex justify-between items-center p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                <span className="text-sm font-bold text-amber-700 uppercase flex items-center gap-2">
+                  <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span> Grades Missing
+                </span>
+                <span className="text-lg font-black text-amber-700">{gradeSummary.empty}</span>
+              </div>
 
-      {/* Actions */}
-      <div className="px-8 pb-8 flex flex-col gap-3">
-        <button 
-          onClick={handleSubmitGrades} 
-          className="w-full bg-gray-900 hover:bg-black text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95 uppercase tracking-widest text-xs"
-        >
-          Finalize & Upload
-        </button>
-        <button 
-          onClick={() => setShowPopup(false)} 
-          className="w-full bg-white text-gray-400 font-bold py-3 rounded-2xl hover:text-gray-600 transition-colors uppercase tracking-widest text-[10px]"
-        >
-          Go Back & Edit
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+              {/* Final Warning */}
+              <div className="mt-6 p-4 bg-red-50 rounded-2xl border-l-4 border-red-500">
+                <p className="text-[11px] font-bold text-red-700 leading-relaxed uppercase">
+                  ⚠️ Attention: Once submitted, grades for <span className="underline">{selectedTest}</span> ({academicYear}) cannot be changed.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-8 pb-8 flex flex-col gap-3">
+              <button
+                onClick={handleSubmitGrades}
+                className="w-full bg-gray-900 hover:bg-black text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95 uppercase tracking-widest text-xs"
+              >
+                Finalize & Upload
+              </button>
+              <button
+                onClick={() => setShowPopup(false)}
+                className="w-full bg-white text-gray-400 font-bold py-3 rounded-2xl hover:text-gray-600 transition-colors uppercase tracking-widest text-[10px]"
+              >
+                Go Back & Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mandatory Download Popup */}
       {showDownloadPopup && (

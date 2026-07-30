@@ -60,7 +60,7 @@ const NAV_ITEMS = [
       { key: "GradeSheet", label: "Grade Sheet" },
       { key: "GradeEntry", label: "Grade Manuel" },
       { key: "SubjectGradeDeleteEntry", label: "Subject Delete" },
-      { key: "GradesAuditPage", label: "GradesAuditPage" },
+      // { key: "GradesAuditPage", label: "GradesAuditPage" },
       { key: "ReportCard", label: "Report Cards" },
       { key: "TermResult", label: "Term Result" },
       { key: "YearlyResult", label: "Yearly Result" },
