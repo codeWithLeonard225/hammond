@@ -23,6 +23,7 @@ import TeacherTimetableReport from "../../TeacherAssign/TeacherTimetableReport";
 import TeacherGradesDashboard from "../../TeacherAssign/TeacherGradesDashboard";
 // Import the GradeSheetPage you created earlier
 import SubmittedGrades from "../../TeacherAssign/SubmittedGrades"; 
+import StaffAttendancePage from "../../TeacherAssign/StaffAttendancePage"; 
 
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/app/lib/firebase";
@@ -37,6 +38,7 @@ import SubjectGradeDeleteEntry from "../../TeacherAssign/SubjectGradeDeleteEntry
 
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: <MdDashboard /> },
+  { key: "StaffAttendancePage", label: "StaffAttendancePage", icon: <MdDashboard /> },
   { key: "grades", label: "Upload Grades", icon: <MdAttachMoney /> },
   { key: "gradesDashboard", label: "Grades Dashboard", icon: <MdAttachMoney /> },
   {
@@ -210,6 +212,7 @@ export default function SubjectTeacherDashboard() {
   const renderContent = () => {
     switch (activeTab) {
       case "dashboard": return <StaffSelfAttendanceReport />;
+      case "StaffAttendancePage": return <StaffAttendancePage />;
       case "grades": return <TeacherGradesPage />;
       case "gradesDashboard": return <TeacherGradesDashboard />;
       case "objectives": return <TeacherQuestionsPageObjectives />;
